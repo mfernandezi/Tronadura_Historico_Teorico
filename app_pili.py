@@ -1846,84 +1846,359 @@ params_multiobj = calcular_malla_optimizada_multiobjetivo(
     peso_p100=peso_p100_norm
 )
 
-# ===== RESULTADOS EN TABLA COMPACTA =====
-st.markdown("---")
-st.markdown("### 📊 Recomendaciones de Malla")
+# Calcular taco intermedio teórico (si aplica)
+# Taco intermedio se recomienda cuando la columna explosiva es larga (>10m)
+# Típicamente se coloca a 1/3 de la altura de la columna
+altura_banco_est = 15.0  # metros estimados
+longitud_carga = altura_banco_est - params_teoricos['taco_optimo'] - params_teoricos['pasadura_optima']
+usar_taco_intermedio = longitud_carga > 10
 
-# Crear tabla comparativa compacta
-df_resultados = pd.DataFrame({
-    'Recomendación': [
-        '📐 Teórica (ENAEX)',
-        '🎯 Mínimo Metros', 
-        '⚡ Optimizada'
-    ],
-    'Malla (BxS)': [
-        f"{params_teoricos['burden_optimo']} × {params_teoricos['espaciamiento_optimo']}",
-        f"{params_minmetros['burden_minmetros']} × {params_minmetros['espaciamiento_minmetros']}",
-        f"{params_multiobj['burden_optimo']} × {params_multiobj['espaciamiento_optimo']}"
-    ],
-    'Área (m²)': [
-        params_teoricos['area_malla'],
-        params_minmetros['area_malla_expandida'],
-        params_multiobj['area_malla']
-    ],
-    'FC (kg/m³)': [
-        params_teoricos['fc_optimo'],
-        params_minmetros['fc_compensado'],
-        params_multiobj['fc_ajustado']
-    ],
-    'Taco (m)': [
-        params_teoricos['taco_optimo'],
-        params_minmetros['taco_ajustado'],
-        params_multiobj['taco_optimo']
-    ],
-    'Timing (ms)': [
-        f"{params_teoricos['timing_pozos_optimo']}/{params_teoricos['timing_filas_optimo']}",
-        f"{params_minmetros['timing_pozos_ajustado']}/{params_minmetros['timing_filas_ajustado']}",
-        f"{params_multiobj['timing_pozos']}/{params_multiobj['timing_filas']}"
-    ],
-    'P80/P100 est.': [
-        '-',
-        '-',
-        f"{params_multiobj['P80_estimado']}\"/{ params_multiobj['P100_estimado']}\""
-    ],
-    'Red. Metros': [
-        '0%',
-        f"{params_minmetros['reduccion_pozos_pct']}%",
-        f"{params_multiobj['reduccion_metros_pct']}%"
+if usar_taco_intermedio:
+    taco_intermedio_teorico = round(longitud_carga / 3, 2)
+    posicion_taco_int = round(params_teoricos['pasadura_optima'] + longitud_carga * 0.33, 2)
+else:
+    taco_intermedio_teorico = 0
+    posicion_taco_int = 0
+
+# ===== MEJOR CONFIGURACIÓN HISTÓRICA =====
+mejor_historico = None
+top3_historico = None
+
+if col_ucs is not None and col_ucs in df_filtrado.columns:
+    ucs_tolerance = 25
+    df_hist = df_filtrado[
+        (df_filtrado[col_ucs] >= ucs_input - ucs_tolerance) &
+        (df_filtrado[col_ucs] <= ucs_input + ucs_tolerance)
+    ].copy()
+    
+    if len(df_hist) > 0 and 'P80TRON' in df_hist.columns:
+        # Top 3 históricos con mejor P80
+        top3_historico = df_hist.nsmallest(3, 'P80TRON')
+        mejor_historico = top3_historico.iloc[0] if len(top3_historico) > 0 else None
+
+# ============================================
+# PANEL PRINCIPAL DE RECOMENDACIONES
+# ============================================
+st.markdown("---")
+st.markdown("## 🎯 RECOMENDACIONES DE DISEÑO DE TRONADURA")
+st.markdown(f"**Para UCS = {ucs_input} MPa ({tipo_roca})**")
+
+# ===== CARDS DE RECOMENDACIONES =====
+st.markdown("### 📋 Comparativa de Configuraciones")
+
+# Crear tabla principal clara
+col_param = [
+    "**PARÁMETRO**",
+    "━━━━━━━━━━━━━━",
+    "**Malla (B × S)**",
+    "**Área malla**",
+    "**Factor de carga**",
+    "━━━━━━━━━━━━━━",
+    "**Taco superior**",
+    "**Taco intermedio**",
+    "━━━━━━━━━━━━━━",
+    "**Timing pozos**",
+    "**Timing filas**",
+    "━━━━━━━━━━━━━━",
+    "**P80 esperado**",
+    "**P100 esperado**",
+    "━━━━━━━━━━━━━━",
+    "**Reducción metros**",
+    "**Explosivo**"
+]
+
+# Valores para cada columna
+col_teorica = [
+    "📐 **TEÓRICA**",
+    "",
+    f"**{params_teoricos['burden_optimo']} × {params_teoricos['espaciamiento_optimo']} m**",
+    f"{params_teoricos['area_malla']} m²",
+    f"{params_teoricos['fc_optimo']} kg/m³",
+    "",
+    f"{params_teoricos['taco_optimo']} m",
+    f"{taco_intermedio_teorico} m" if usar_taco_intermedio else "No requerido",
+    "",
+    f"{params_teoricos['timing_pozos_optimo']} ms",
+    f"{params_teoricos['timing_filas_optimo']} ms",
+    "",
+    "~ 5-7\"",
+    "~ 10-13\"",
+    "",
+    "0% (base)",
+    params_teoricos['explosivo_recomendado']
+]
+
+col_optimizada = [
+    "⚡ **OPTIMIZADA**",
+    "",
+    f"**{params_multiobj['burden_optimo']} × {params_multiobj['espaciamiento_optimo']} m**",
+    f"{params_multiobj['area_malla']} m²",
+    f"{params_multiobj['fc_ajustado']} kg/m³",
+    "",
+    f"{params_multiobj['taco_optimo']} m",
+    f"{round(taco_intermedio_teorico * factor_expansion_auto, 2)} m" if usar_taco_intermedio else "No requerido",
+    "",
+    f"{params_multiobj['timing_pozos']} ms",
+    f"{params_multiobj['timing_filas']} ms",
+    "",
+    f"**{params_multiobj['P80_estimado']}\"** {'✅' if params_multiobj['cumple_P80'] else '⚠️'}",
+    f"**{params_multiobj['P100_estimado']}\"** {'✅' if params_multiobj['cumple_P100'] else '⚠️'}",
+    "",
+    f"**-{params_multiobj['reduccion_metros_pct']}%**",
+    params_teoricos['explosivo_recomendado']
+]
+
+# Columna histórica
+if mejor_historico is not None:
+    burden_hist = mejor_historico.get('Burden', '-')
+    esp_hist = mejor_historico.get('Espaciamiento', '-')
+    fc_hist = mejor_historico.get('FC', mejor_historico.get('fc1', '-'))
+    taco_hist = mejor_historico.get('taco_gravilla', '-')
+    taco_int_hist = mejor_historico.get('taco_intermedio', '-')
+    tp_hist = mejor_historico.get('tpozos_ms', '-')
+    tf_hist = mejor_historico.get('tfilas_ms', '-')
+    p80_hist = mejor_historico.get('P80TRON', '-')
+    p100_hist = mejor_historico.get('P100TRON', '-')
+    exp_hist = mejor_historico.get('Tipo_Explosivo', '-')
+    
+    # Calcular área histórica
+    if pd.notna(burden_hist) and pd.notna(esp_hist):
+        area_hist = round(float(burden_hist) * float(esp_hist), 1)
+        malla_hist = f"**{burden_hist} × {esp_hist} m**"
+    else:
+        area_hist = '-'
+        malla_hist = '-'
+    
+    col_historica = [
+        "📊 **HISTÓRICA**",
+        "",
+        malla_hist,
+        f"{area_hist} m²",
+        f"{fc_hist} kg/m³" if pd.notna(fc_hist) else "-",
+        "",
+        f"{taco_hist} m" if pd.notna(taco_hist) else "-",
+        f"{taco_int_hist} m" if pd.notna(taco_int_hist) and taco_int_hist != 0 else "No usado",
+        "",
+        f"{tp_hist} ms" if pd.notna(tp_hist) else "-",
+        f"{tf_hist} ms" if pd.notna(tf_hist) else "-",
+        "",
+        f"**{round(p80_hist, 2)}\"**" if pd.notna(p80_hist) else "-",
+        f"**{round(p100_hist, 2)}\"**" if pd.notna(p100_hist) else "-",
+        "",
+        "Dato real",
+        str(exp_hist) if pd.notna(exp_hist) else "-"
     ]
+else:
+    col_historica = [
+        "📊 **HISTÓRICA**",
+        "",
+        "Sin datos",
+        "-",
+        "-",
+        "",
+        "-",
+        "-",
+        "",
+        "-",
+        "-",
+        "",
+        "-",
+        "-",
+        "",
+        "-",
+        "-"
+    ]
+
+# Crear DataFrame para mostrar
+df_recomendaciones = pd.DataFrame({
+    'Parámetro': col_param,
+    'Teórica ENAEX': col_teorica,
+    'Optimizada': col_optimizada,
+    'Mejor Histórica': col_historica
 })
 
-st.dataframe(df_resultados, use_container_width=True, hide_index=True)
+# Mostrar sin índice y con formato
+st.dataframe(
+    df_recomendaciones,
+    use_container_width=True,
+    hide_index=True,
+    column_config={
+        "Parámetro": st.column_config.TextColumn(width="medium"),
+        "Teórica ENAEX": st.column_config.TextColumn(width="medium"),
+        "Optimizada": st.column_config.TextColumn(width="medium"),
+        "Mejor Histórica": st.column_config.TextColumn(width="medium"),
+    }
+)
 
-# ===== RESUMEN VISUAL =====
-col_res1, col_res2, col_res3 = st.columns(3)
+# ===== RESUMEN VISUAL EN CARDS =====
+st.markdown("### 🏆 Resumen Rápido")
 
-with col_res1:
-    st.success(f"""
-    **📐 Teórica**  
-    Malla: **{params_teoricos['burden_optimo']}×{params_teoricos['espaciamiento_optimo']}**  
+col_card1, col_card2, col_card3 = st.columns(3)
+
+with col_card1:
+    st.markdown(f"""
+    <div style="background-color:#d4edda; padding:15px; border-radius:10px; border-left:5px solid #28a745;">
+    <h4 style="margin:0; color:#155724;">📐 TEÓRICA</h4>
+    <h2 style="margin:5px 0; color:#155724;">{params_teoricos['burden_optimo']} × {params_teoricos['espaciamiento_optimo']}</h2>
+    <p style="margin:0; color:#155724;">
+    Taco: {params_teoricos['taco_optimo']}m<br>
+    Timing: {params_teoricos['timing_pozos_optimo']}/{params_teoricos['timing_filas_optimo']} ms<br>
     FC: {params_teoricos['fc_optimo']} kg/m³
-    """)
+    </p>
+    </div>
+    """, unsafe_allow_html=True)
 
-with col_res2:
+with col_card2:
+    cumple_icon = "✅" if (params_multiobj['cumple_P80'] and params_multiobj['cumple_P100']) else "⚠️"
+    st.markdown(f"""
+    <div style="background-color:#fff3cd; padding:15px; border-radius:10px; border-left:5px solid #ffc107;">
+    <h4 style="margin:0; color:#856404;">⚡ OPTIMIZADA {cumple_icon}</h4>
+    <h2 style="margin:5px 0; color:#856404;">{params_multiobj['burden_optimo']} × {params_multiobj['espaciamiento_optimo']}</h2>
+    <p style="margin:0; color:#856404;">
+    P80: {params_multiobj['P80_estimado']}" | P100: {params_multiobj['P100_estimado']}"<br>
+    Timing: {params_multiobj['timing_pozos']}/{params_multiobj['timing_filas']} ms<br>
+    <b>Ahorro: {params_multiobj['reduccion_metros_pct']}% metros</b>
+    </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_card3:
+    if mejor_historico is not None and pd.notna(burden_hist) and pd.notna(esp_hist):
+        st.markdown(f"""
+        <div style="background-color:#cce5ff; padding:15px; border-radius:10px; border-left:5px solid #004085;">
+        <h4 style="margin:0; color:#004085;">📊 HISTÓRICA</h4>
+        <h2 style="margin:5px 0; color:#004085;">{burden_hist} × {esp_hist}</h2>
+        <p style="margin:0; color:#004085;">
+        P80: {round(p80_hist, 1) if pd.notna(p80_hist) else '-'}" | P100: {round(p100_hist, 1) if pd.notna(p100_hist) else '-'}"<br>
+        Timing: {tp_hist}/{tf_hist} ms<br>
+        <b>Resultado real probado</b>
+        </p>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div style="background-color:#e2e3e5; padding:15px; border-radius:10px; border-left:5px solid #6c757d;">
+        <h4 style="margin:0; color:#383d41;">📊 HISTÓRICA</h4>
+        <h2 style="margin:5px 0; color:#383d41;">Sin datos</h2>
+        <p style="margin:0; color:#383d41;">
+        No hay tronaduras históricas<br>
+        para UCS ≈ {ucs_input} MPa<br>
+        en los datos cargados
+        </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+# ===== TOP 3 HISTÓRICOS =====
+if top3_historico is not None and len(top3_historico) > 0:
+    st.markdown("---")
+    st.markdown("### 🏅 Top 3 Mejores Tronaduras Históricas")
+    st.markdown(f"*Tronaduras con UCS entre {ucs_input - ucs_tolerance} y {ucs_input + ucs_tolerance} MPa, ordenadas por mejor P80*")
+    
+    # Seleccionar columnas relevantes
+    cols_top3 = ['BxS', 'Burden', 'Espaciamiento', 'FC', 'taco_gravilla', 'taco_intermedio',
+                 'tpozos_ms', 'tfilas_ms', 'Tipo_Explosivo', 'P80TRON', 'P100TRON', 'UCS_MPA',
+                 'Fase_cat', 'Banco']
+    cols_top3 = [c for c in cols_top3 if c in top3_historico.columns]
+    
+    # Renombrar columnas para claridad
+    df_top3_display = top3_historico[cols_top3].copy()
+    rename_map = {
+        'BxS': 'Malla',
+        'Burden': 'B (m)',
+        'Espaciamiento': 'S (m)',
+        'FC': 'FC',
+        'taco_gravilla': 'Taco (m)',
+        'taco_intermedio': 'Taco Int.',
+        'tpozos_ms': 'T.Pozos',
+        'tfilas_ms': 'T.Filas',
+        'Tipo_Explosivo': 'Explosivo',
+        'P80TRON': 'P80',
+        'P100TRON': 'P100',
+        'UCS_MPA': 'UCS',
+        'Fase_cat': 'Fase',
+        'Banco': 'Banco'
+    }
+    df_top3_display = df_top3_display.rename(columns={k: v for k, v in rename_map.items() if k in df_top3_display.columns})
+    
+    # Redondear valores numéricos
+    for col in df_top3_display.select_dtypes(include=[np.number]).columns:
+        df_top3_display[col] = df_top3_display[col].round(2)
+    
+    st.dataframe(df_top3_display, use_container_width=True, hide_index=True)
+    
+    # Estadísticas de los top 3
+    st.markdown("**📈 Estadísticas de las mejores tronaduras:**")
+    col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+    
+    with col_stat1:
+        if 'P80TRON' in top3_historico.columns:
+            st.metric("P80 promedio", f"{top3_historico['P80TRON'].mean():.2f}\"")
+    with col_stat2:
+        if 'P100TRON' in top3_historico.columns:
+            st.metric("P100 promedio", f"{top3_historico['P100TRON'].mean():.2f}\"")
+    with col_stat3:
+        if 'Burden' in top3_historico.columns and 'Espaciamiento' in top3_historico.columns:
+            area_prom = (top3_historico['Burden'] * top3_historico['Espaciamiento']).mean()
+            st.metric("Área malla prom.", f"{area_prom:.1f} m²")
+    with col_stat4:
+        if 'FC' in top3_historico.columns:
+            st.metric("FC promedio", f"{top3_historico['FC'].mean():.2f}")
+
+# ===== INFORMACIÓN SOBRE TACO INTERMEDIO =====
+st.markdown("---")
+st.markdown("### 📏 Recomendación de Taco Intermedio")
+
+if usar_taco_intermedio:
     st.info(f"""
-    **🎯 Mín. Metros**  
-    Malla: **{params_minmetros['burden_minmetros']}×{params_minmetros['espaciamiento_minmetros']}**  
-    Ahorro: {params_minmetros['reduccion_pozos_pct']}% pozos
+    **Se recomienda usar taco intermedio** para esta configuración.
+    
+    📐 **Teórico (ENAEX):**
+    - Longitud de columna explosiva estimada: **{longitud_carga:.1f} m** (> 10m)
+    - Taco intermedio recomendado: **{taco_intermedio_teorico} m**
+    - Posición desde fondo del pozo: **{posicion_taco_int} m**
+    - Material: Gravilla 3/4" o detritus de perforación
+    
+    💡 **Beneficios del taco intermedio:**
+    - Mejor distribución de energía en la columna
+    - Reduce la presión en el taco superior
+    - Mejora la fragmentación en la parte superior del banco
+    """)
+else:
+    st.success(f"""
+    **No se requiere taco intermedio** para esta configuración.
+    
+    - Longitud de columna explosiva estimada: **{longitud_carga:.1f} m** (< 10m)
+    - Con columnas cortas, un solo taco superior es suficiente
     """)
 
-with col_res3:
-    cumple = "✅" if (params_multiobj['cumple_P80'] and params_multiobj['cumple_P100']) else "⚠️"
-    st.warning(f"""
-    **⚡ Optimizada** {cumple}  
-    Malla: **{params_multiobj['burden_optimo']}×{params_multiobj['espaciamiento_optimo']}**  
-    P80: {params_multiobj['P80_estimado']}" | P100: {params_multiobj['P100_estimado']}"
-    """)
+# Mostrar histórico de tacos intermedios si existen
+if 'taco_intermedio' in df_filtrado.columns:
+    df_con_taco_int = df_filtrado[df_filtrado['taco_intermedio'].notna() & (df_filtrado['taco_intermedio'] > 0)]
+    if len(df_con_taco_int) > 0:
+        st.markdown("**📊 Tacos intermedios usados históricamente:**")
+        taco_int_stats = df_con_taco_int['taco_intermedio'].describe()
+        col_ti1, col_ti2, col_ti3 = st.columns(3)
+        with col_ti1:
+            st.metric("Mínimo usado", f"{taco_int_stats['min']:.1f} m")
+        with col_ti2:
+            st.metric("Promedio", f"{taco_int_stats['mean']:.1f} m")
+        with col_ti3:
+            st.metric("Máximo usado", f"{taco_int_stats['max']:.1f} m")
 
 # ===== EXPLOSIVO RECOMENDADO =====
+st.markdown("---")
 st.markdown(f"""
-**💥 Explosivo recomendado para UCS={ucs_input} MPa:** `{params_teoricos['explosivo_recomendado']}`
+### 💥 Explosivo Recomendado
+
+Para **UCS = {ucs_input} MPa** se recomienda: **`{params_teoricos['explosivo_recomendado']}`**
+
+| Rango UCS | Explosivos recomendados |
+|-----------|------------------------|
+| < 50 MPa | ANFO, Blendex 920-930 |
+| 50-80 MPa | Blendex 940-950, Vertex ALR |
+| 80-120 MPa | Emultex BN, Energex 50 |
+| 120-180 MPa | Energex 70, Pirex S |
+| > 180 MPa | Pirex S Plus, Energex 70 Plus |
 """)
 
 # ===== FÓRMULAS (COLAPSADAS) =====
