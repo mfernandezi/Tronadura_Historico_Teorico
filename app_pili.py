@@ -1734,19 +1734,19 @@ with col_main1:
     )
 
 with col_main2:
-    # Clasificación automática de roca
+    # Clasificación automática de roca (semáforo)
     if ucs_input < 50:
-        tipo_roca = "🔵 Blanda"
-        color_roca = "#90caf9"
+        tipo_roca = "🟢 Blanda"
+        color_roca = "green"
     elif ucs_input < 100:
-        tipo_roca = "🔷 Media"
-        color_roca = "#42a5f5"
+        tipo_roca = "🟡 Media"
+        color_roca = "orange"
     elif ucs_input < 150:
-        tipo_roca = "🔹 Dura"
-        color_roca = "#1976d2"
+        tipo_roca = "🟠 Dura"
+        color_roca = "darkorange"
     else:
-        tipo_roca = "⬛ Muy Dura"
-        color_roca = "#0d47a1"
+        tipo_roca = "🔴 Muy Dura"
+        color_roca = "red"
     
     st.metric("Tipo de Roca", tipo_roca)
 
