@@ -1715,6 +1715,33 @@ else:
 # SECCIÓN 1.1: RECOMENDACIONES DE MALLA (SIMPLIFICADA)
 # ============================================
 
+# Estilo CSS para cambiar colores a celeste
+st.markdown("""
+<style>
+    /* Slider */
+    .stSlider > div > div > div > div {
+        background-color: #81d4fa !important;
+    }
+    .stSlider > div > div > div > div > div {
+        background-color: #0288d1 !important;
+    }
+    /* Botones */
+    .stButton > button {
+        background-color: #b3e5fc !important;
+        color: #01579b !important;
+        border: 1px solid #4fc3f7 !important;
+    }
+    .stButton > button:hover {
+        background-color: #81d4fa !important;
+        border: 1px solid #0288d1 !important;
+    }
+    /* Selectbox */
+    .stSelectbox > div > div {
+        border-color: #4fc3f7 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 st.markdown("---")
 st.header("Sección 1.1: Calculadora de Malla Óptima")
 
@@ -1877,173 +1904,127 @@ if col_ucs is not None and col_ucs in df_filtrado.columns:
         mejor_historico = top3_historico.iloc[0] if len(top3_historico) > 0 else None
 
 # ============================================
-# PANEL PRINCIPAL DE RECOMENDACIONES
+# PANEL PRINCIPAL: TOP 5 RECOMENDACIONES
 # ============================================
 st.markdown("---")
-st.markdown("## 🎯 RECOMENDACIONES DE DISEÑO DE TRONADURA")
+st.markdown("## 🏆 TOP 5 RECOMENDACIONES DE MALLA")
 st.markdown(f"**Para UCS = {ucs_input} MPa ({tipo_roca})**")
 
-# ===== CARDS DE RECOMENDACIONES =====
-st.markdown("### 📋 Comparativa de Configuraciones")
+# Crear lista de recomendaciones ordenadas por mejor resultado
+recomendaciones = []
 
-# Crear tabla principal clara
-col_param = [
-    "**PARÁMETRO**",
-    "━━━━━━━━━━━━━━",
-    "**Malla (B × S)**",
-    "**Área malla**",
-    "**Factor de carga**",
-    "━━━━━━━━━━━━━━",
-    "**Taco superior**",
-    "**Taco intermedio**",
-    "━━━━━━━━━━━━━━",
-    "**Timing pozos**",
-    "**Timing filas**",
-    "━━━━━━━━━━━━━━",
-    "**P80 esperado**",
-    "**P100 esperado**",
-    "━━━━━━━━━━━━━━",
-    "**Reducción metros**",
-    "**Explosivo**"
-]
-
-# Valores para cada columna
-col_teorica = [
-    "📐 **TEÓRICA**",
-    "",
-    f"**{params_teoricos['burden_optimo']} × {params_teoricos['espaciamiento_optimo']} m**",
-    f"{params_teoricos['area_malla']} m²",
-    f"{params_teoricos['fc_optimo']} kg/m³",
-    "",
-    f"{params_teoricos['taco_optimo']} m",
-    f"{taco_intermedio_teorico} m" if usar_taco_intermedio else "No requerido",
-    "",
-    f"{params_teoricos['timing_pozos_optimo']} ms",
-    f"{params_teoricos['timing_filas_optimo']} ms",
-    "",
-    "~ 5-7\"",
-    "~ 10-13\"",
-    "",
-    "0% (base)",
-    params_teoricos['explosivo_recomendado']
-]
-
-col_optimizada = [
-    "⚡ **OPTIMIZADA**",
-    "",
-    f"**{params_multiobj['burden_optimo']} × {params_multiobj['espaciamiento_optimo']} m**",
-    f"{params_multiobj['area_malla']} m²",
-    f"{params_multiobj['fc_ajustado']} kg/m³",
-    "",
-    f"{params_multiobj['taco_optimo']} m",
-    f"{round(taco_intermedio_teorico * factor_expansion_auto, 2)} m" if usar_taco_intermedio else "No requerido",
-    "",
-    f"{params_multiobj['timing_pozos']} ms",
-    f"{params_multiobj['timing_filas']} ms",
-    "",
-    f"**{params_multiobj['P80_estimado']}\"** {'✅' if params_multiobj['cumple_P80'] else '⚠️'}",
-    f"**{params_multiobj['P100_estimado']}\"** {'✅' if params_multiobj['cumple_P100'] else '⚠️'}",
-    "",
-    f"**-{params_multiobj['reduccion_metros_pct']}%**",
-    params_teoricos['explosivo_recomendado']
-]
-
-# Columna histórica
-if mejor_historico is not None:
-    burden_hist = mejor_historico.get('Burden', '-')
-    esp_hist = mejor_historico.get('Espaciamiento', '-')
-    fc_hist = mejor_historico.get('FC', mejor_historico.get('fc1', '-'))
-    taco_hist = mejor_historico.get('taco_gravilla', '-')
-    taco_int_hist = mejor_historico.get('taco_intermedio', '-')
-    tp_hist = mejor_historico.get('tpozos_ms', '-')
-    tf_hist = mejor_historico.get('tfilas_ms', '-')
-    p80_hist = mejor_historico.get('P80TRON', '-')
-    p100_hist = mejor_historico.get('P100TRON', '-')
-    exp_hist = mejor_historico.get('Tipo_Explosivo', '-')
-    
-    # Calcular área histórica
-    if pd.notna(burden_hist) and pd.notna(esp_hist):
-        area_hist = round(float(burden_hist) * float(esp_hist), 1)
-        malla_hist = f"**{burden_hist} × {esp_hist} m**"
-    else:
-        area_hist = '-'
-        malla_hist = '-'
-    
-    col_historica = [
-        "📊 **HISTÓRICA**",
-        "",
-        malla_hist,
-        f"{area_hist} m²",
-        f"{fc_hist} kg/m³" if pd.notna(fc_hist) else "-",
-        "",
-        f"{taco_hist} m" if pd.notna(taco_hist) else "-",
-        f"{taco_int_hist} m" if pd.notna(taco_int_hist) and taco_int_hist != 0 else "No usado",
-        "",
-        f"{tp_hist} ms" if pd.notna(tp_hist) else "-",
-        f"{tf_hist} ms" if pd.notna(tf_hist) else "-",
-        "",
-        f"**{round(p80_hist, 2)}\"**" if pd.notna(p80_hist) else "-",
-        f"**{round(p100_hist, 2)}\"**" if pd.notna(p100_hist) else "-",
-        "",
-        "Dato real",
-        str(exp_hist) if pd.notna(exp_hist) else "-"
-    ]
-else:
-    col_historica = [
-        "📊 **HISTÓRICA**",
-        "",
-        "Sin datos",
-        "-",
-        "-",
-        "",
-        "-",
-        "-",
-        "",
-        "-",
-        "-",
-        "",
-        "-",
-        "-",
-        "",
-        "-",
-        "-"
-    ]
-
-# Crear DataFrame para mostrar
-df_recomendaciones = pd.DataFrame({
-    'Parámetro': col_param,
-    'Teórica ENAEX': col_teorica,
-    'Optimizada': col_optimizada,
-    'Mejor Histórica': col_historica
+# 1. Añadir recomendación teórica
+recomendaciones.append({
+    'Ranking': 1,
+    'Tipo': '📐 Teórica ENAEX',
+    'Malla': f"{params_teoricos['burden_optimo']} × {params_teoricos['espaciamiento_optimo']}",
+    'Área (m²)': round(params_teoricos['area_malla'], 2),
+    'FC': round(params_teoricos['fc_optimo'], 2),
+    'Taco (m)': round(params_teoricos['taco_optimo'], 2),
+    'T.Pozos (ms)': round(params_teoricos['timing_pozos_optimo'], 2),
+    'P80': 6.00,  # Estimado teórico
+    'P100': 12.00,  # Estimado teórico
+    'Ahorro (%)': 0.00,
+    'Fuente': 'Cálculo teórico'
 })
 
-# Mostrar sin índice y con formato
+# 2. Añadir recomendación optimizada (menos metros)
+recomendaciones.append({
+    'Ranking': 2,
+    'Tipo': '⚡ Optimizada',
+    'Malla': f"{params_multiobj['burden_optimo']} × {params_multiobj['espaciamiento_optimo']}",
+    'Área (m²)': round(params_multiobj['area_malla'], 2),
+    'FC': round(params_multiobj['fc_ajustado'], 2),
+    'Taco (m)': round(params_multiobj['taco_optimo'], 2),
+    'T.Pozos (ms)': round(params_multiobj['timing_pozos'], 2),
+    'P80': round(params_multiobj['P80_estimado'], 2),
+    'P100': round(params_multiobj['P100_estimado'], 2),
+    'Ahorro (%)': round(params_multiobj['reduccion_metros_pct'], 2),
+    'Fuente': 'Multi-objetivo'
+})
+
+# 3. Añadir históricos (hasta 3)
+if top3_historico is not None and len(top3_historico) > 0:
+    for idx, row in top3_historico.head(3).iterrows():
+        burden_h = row.get('Burden', np.nan)
+        esp_h = row.get('Espaciamiento', np.nan)
+        fc_h = row.get('FC', row.get('fc1', np.nan))
+        taco_h = row.get('taco_gravilla', np.nan)
+        tp_h = row.get('tpozos_ms', np.nan)
+        p80_h = row.get('P80TRON', np.nan)
+        p100_h = row.get('P100TRON', np.nan)
+        
+        if pd.notna(burden_h) and pd.notna(esp_h):
+            area_h = round(float(burden_h) * float(esp_h), 2)
+            # Calcular ahorro respecto a teórica
+            ahorro_h = round((1 - params_teoricos['area_malla'] / area_h) * 100, 2) if area_h > 0 else 0
+            
+            recomendaciones.append({
+                'Ranking': len(recomendaciones) + 1,
+                'Tipo': '📊 Histórica',
+                'Malla': f"{round(burden_h, 2)} × {round(esp_h, 2)}",
+                'Área (m²)': area_h,
+                'FC': round(fc_h, 2) if pd.notna(fc_h) else '-',
+                'Taco (m)': round(taco_h, 2) if pd.notna(taco_h) else '-',
+                'T.Pozos (ms)': round(tp_h, 2) if pd.notna(tp_h) else '-',
+                'P80': round(p80_h, 2) if pd.notna(p80_h) else '-',
+                'P100': round(p100_h, 2) if pd.notna(p100_h) else '-',
+                'Ahorro (%)': ahorro_h,
+                'Fuente': 'Dato real'
+            })
+
+# Limitar a 5 recomendaciones
+recomendaciones = recomendaciones[:5]
+
+# Ordenar por P80 (mejores resultados primero) - si P80 es string, dejarlo al final
+def sort_key(x):
+    p80 = x['P80']
+    if isinstance(p80, str):
+        return 999
+    return p80
+
+recomendaciones_sorted = sorted(recomendaciones, key=sort_key)
+
+# Reasignar ranking
+for i, rec in enumerate(recomendaciones_sorted):
+    rec['Ranking'] = i + 1
+
+# Crear DataFrame para TOP 5
+df_top5 = pd.DataFrame(recomendaciones_sorted)
+
+st.markdown("### 📋 Comparativa de Mejores Configuraciones")
 st.dataframe(
-    df_recomendaciones,
+    df_top5,
     use_container_width=True,
     hide_index=True,
     column_config={
-        "Parámetro": st.column_config.TextColumn(width="medium"),
-        "Teórica ENAEX": st.column_config.TextColumn(width="medium"),
-        "Optimizada": st.column_config.TextColumn(width="medium"),
-        "Mejor Histórica": st.column_config.TextColumn(width="medium"),
+        "Ranking": st.column_config.NumberColumn("🏅", width="small"),
+        "Tipo": st.column_config.TextColumn("Tipo", width="medium"),
+        "Malla": st.column_config.TextColumn("B × S (m)", width="medium"),
+        "Área (m²)": st.column_config.NumberColumn("Área", format="%.2f"),
+        "FC": st.column_config.NumberColumn("FC", format="%.2f"),
+        "Taco (m)": st.column_config.NumberColumn("Taco", format="%.2f"),
+        "T.Pozos (ms)": st.column_config.NumberColumn("T.Pozos", format="%.2f"),
+        "P80": st.column_config.NumberColumn("P80 (\")", format="%.2f"),
+        "P100": st.column_config.NumberColumn("P100 (\")", format="%.2f"),
+        "Ahorro (%)": st.column_config.NumberColumn("Ahorro", format="%.2f%%"),
     }
 )
 
-# ===== RESUMEN VISUAL EN CARDS =====
-st.markdown("### 🏆 Resumen Rápido")
+# ===== CARDS RESUMEN (las 3 principales) =====
+st.markdown("### 🎯 Resumen de Mejores Opciones")
 
 col_card1, col_card2, col_card3 = st.columns(3)
 
 with col_card1:
     st.markdown(f"""
-    <div style="background-color:#e3f2fd; padding:15px; border-radius:10px; border-left:5px solid #1976d2;">
-    <h4 style="margin:0; color:#0d47a1;">📐 TEÓRICA</h4>
-    <h2 style="margin:5px 0; color:#0d47a1;">{params_teoricos['burden_optimo']} × {params_teoricos['espaciamiento_optimo']}</h2>
-    <p style="margin:0; color:#1565c0;">
-    Taco: {params_teoricos['taco_optimo']}m<br>
-    Timing: {params_teoricos['timing_pozos_optimo']}/{params_teoricos['timing_filas_optimo']} ms<br>
-    FC: {params_teoricos['fc_optimo']} kg/m³
+    <div style="background-color:#e1f5fe; padding:15px; border-radius:10px; border-left:5px solid #03a9f4;">
+    <h4 style="margin:0; color:#0277bd;">📐 TEÓRICA</h4>
+    <h2 style="margin:5px 0; color:#01579b;">{params_teoricos['burden_optimo']} × {params_teoricos['espaciamiento_optimo']}</h2>
+    <p style="margin:0; color:#0288d1;">
+    Área: {round(params_teoricos['area_malla'], 2)} m²<br>
+    FC: {round(params_teoricos['fc_optimo'], 2)} kg/m³<br>
+    Taco: {round(params_teoricos['taco_optimo'], 2)} m
     </p>
     </div>
     """, unsafe_allow_html=True)
@@ -2051,98 +2032,46 @@ with col_card1:
 with col_card2:
     cumple_icon = "✅" if (params_multiobj['cumple_P80'] and params_multiobj['cumple_P100']) else "⚠️"
     st.markdown(f"""
-    <div style="background-color:#bbdefb; padding:15px; border-radius:10px; border-left:5px solid #1565c0;">
-    <h4 style="margin:0; color:#0d47a1;">⚡ OPTIMIZADA {cumple_icon}</h4>
-    <h2 style="margin:5px 0; color:#0d47a1;">{params_multiobj['burden_optimo']} × {params_multiobj['espaciamiento_optimo']}</h2>
-    <p style="margin:0; color:#1565c0;">
-    P80: {params_multiobj['P80_estimado']}" | P100: {params_multiobj['P100_estimado']}"<br>
-    Timing: {params_multiobj['timing_pozos']}/{params_multiobj['timing_filas']} ms<br>
-    <b>Ahorro: {params_multiobj['reduccion_metros_pct']}% metros</b>
+    <div style="background-color:#b3e5fc; padding:15px; border-radius:10px; border-left:5px solid #0288d1;">
+    <h4 style="margin:0; color:#0277bd;">⚡ OPTIMIZADA {cumple_icon}</h4>
+    <h2 style="margin:5px 0; color:#01579b;">{params_multiobj['burden_optimo']} × {params_multiobj['espaciamiento_optimo']}</h2>
+    <p style="margin:0; color:#0288d1;">
+    P80: {round(params_multiobj['P80_estimado'], 2)}" | P100: {round(params_multiobj['P100_estimado'], 2)}"<br>
+    Ahorro: <b>{round(params_multiobj['reduccion_metros_pct'], 2)}%</b> metros<br>
+    FC ajustado: {round(params_multiobj['fc_ajustado'], 2)} kg/m³
     </p>
     </div>
     """, unsafe_allow_html=True)
 
 with col_card3:
-    if mejor_historico is not None and pd.notna(burden_hist) and pd.notna(esp_hist):
+    if top3_historico is not None and len(top3_historico) > 0:
+        mejor = top3_historico.iloc[0]
+        b_h = mejor.get('Burden', '-')
+        s_h = mejor.get('Espaciamiento', '-')
+        p80_h = mejor.get('P80TRON', '-')
+        p100_h = mejor.get('P100TRON', '-')
         st.markdown(f"""
-        <div style="background-color:#90caf9; padding:15px; border-radius:10px; border-left:5px solid #0d47a1;">
-        <h4 style="margin:0; color:#0d47a1;">📊 HISTÓRICA</h4>
-        <h2 style="margin:5px 0; color:#0d47a1;">{burden_hist} × {esp_hist}</h2>
-        <p style="margin:0; color:#1565c0;">
-        P80: {round(p80_hist, 1) if pd.notna(p80_hist) else '-'}" | P100: {round(p100_hist, 1) if pd.notna(p100_hist) else '-'}"<br>
-        Timing: {tp_hist}/{tf_hist} ms<br>
-        <b>Resultado real probado</b>
+        <div style="background-color:#81d4fa; padding:15px; border-radius:10px; border-left:5px solid #0277bd;">
+        <h4 style="margin:0; color:#0277bd;">📊 MEJOR HISTÓRICA</h4>
+        <h2 style="margin:5px 0; color:#01579b;">{round(b_h, 2) if pd.notna(b_h) else '-'} × {round(s_h, 2) if pd.notna(s_h) else '-'}</h2>
+        <p style="margin:0; color:#0288d1;">
+        P80: {round(p80_h, 2) if pd.notna(p80_h) else '-'}" | P100: {round(p100_h, 2) if pd.notna(p100_h) else '-'}"<br>
+        <b>Resultado real probado</b><br>
+        Fuente: datos históricos
         </p>
         </div>
         """, unsafe_allow_html=True)
     else:
         st.markdown(f"""
-        <div style="background-color:#e3f2fd; padding:15px; border-radius:10px; border-left:5px solid #90a4ae;">
+        <div style="background-color:#e1f5fe; padding:15px; border-radius:10px; border-left:5px solid #90a4ae;">
         <h4 style="margin:0; color:#546e7a;">📊 HISTÓRICA</h4>
         <h2 style="margin:5px 0; color:#546e7a;">Sin datos</h2>
         <p style="margin:0; color:#78909c;">
         No hay tronaduras históricas<br>
-        para UCS ≈ {ucs_input} MPa<br>
-        en los datos cargados
+        para UCS ≈ {ucs_input} MPa
         </p>
         </div>
         """, unsafe_allow_html=True)
-
-# ===== TOP 3 HISTÓRICOS =====
-if top3_historico is not None and len(top3_historico) > 0:
-    st.markdown("---")
-    st.markdown("### 🏅 Top 3 Mejores Tronaduras Históricas")
-    st.markdown(f"*Tronaduras con UCS entre {ucs_input - ucs_tolerance} y {ucs_input + ucs_tolerance} MPa, ordenadas por mejor P80*")
-    
-    # Seleccionar columnas relevantes
-    cols_top3 = ['BxS', 'Burden', 'Espaciamiento', 'FC', 'taco_gravilla', 'taco_intermedio',
-                 'tpozos_ms', 'tfilas_ms', 'Tipo_Explosivo', 'P80TRON', 'P100TRON', 'UCS_MPA',
-                 'Fase_cat', 'Banco']
-    cols_top3 = [c for c in cols_top3 if c in top3_historico.columns]
-    
-    # Renombrar columnas para claridad
-    df_top3_display = top3_historico[cols_top3].copy()
-    rename_map = {
-        'BxS': 'Malla',
-        'Burden': 'B (m)',
-        'Espaciamiento': 'S (m)',
-        'FC': 'FC',
-        'taco_gravilla': 'Taco (m)',
-        'taco_intermedio': 'Taco Int.',
-        'tpozos_ms': 'T.Pozos',
-        'tfilas_ms': 'T.Filas',
-        'Tipo_Explosivo': 'Explosivo',
-        'P80TRON': 'P80',
-        'P100TRON': 'P100',
-        'UCS_MPA': 'UCS',
-        'Fase_cat': 'Fase',
-        'Banco': 'Banco'
-    }
-    df_top3_display = df_top3_display.rename(columns={k: v for k, v in rename_map.items() if k in df_top3_display.columns})
-    
-    # Redondear valores numéricos
-    for col in df_top3_display.select_dtypes(include=[np.number]).columns:
-        df_top3_display[col] = df_top3_display[col].round(2)
-    
-    st.dataframe(df_top3_display, use_container_width=True, hide_index=True)
-    
-    # Estadísticas de los top 3
-    st.markdown("**📈 Estadísticas de las mejores tronaduras:**")
-    col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
-    
-    with col_stat1:
-        if 'P80TRON' in top3_historico.columns:
-            st.metric("P80 promedio", f"{top3_historico['P80TRON'].mean():.2f}\"")
-    with col_stat2:
-        if 'P100TRON' in top3_historico.columns:
-            st.metric("P100 promedio", f"{top3_historico['P100TRON'].mean():.2f}\"")
-    with col_stat3:
-        if 'Burden' in top3_historico.columns and 'Espaciamiento' in top3_historico.columns:
-            area_prom = (top3_historico['Burden'] * top3_historico['Espaciamiento']).mean()
-            st.metric("Área malla prom.", f"{area_prom:.1f} m²")
-    with col_stat4:
-        if 'FC' in top3_historico.columns:
-            st.metric("FC promedio", f"{top3_historico['FC'].mean():.2f}")
 
 # ===== INFORMACIÓN SOBRE TACO INTERMEDIO =====
 st.markdown("---")
