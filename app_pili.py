@@ -1768,22 +1768,25 @@ st.markdown("""
 st.markdown("---")
 st.header("Sección 1.1: Calculadora de Malla Óptima")
 
-# ===== INPUT PRINCIPAL: SOLO UCS =====
-st.markdown("### 🎯 Ingresa el UCS de tu zona de trabajo")
+# ============================================
+# PANEL DE PARÁMETROS DE ENTRADA
+# ============================================
+st.markdown("### 📋 Parámetros de Entrada")
 
-col_main1, col_main2 = st.columns([2, 1])
+# Fila 1: UCS y Tipo de Roca
+col_ucs1, col_ucs2, col_ucs3 = st.columns([2, 1, 1])
 
-with col_main1:
+with col_ucs1:
     ucs_input = st.slider(
-        "UCS objetivo (MPa)",
+        "🎯 UCS objetivo (MPa)",
         min_value=30,
         max_value=200,
         value=100,
-        step=10,
+        step=5,
         help="Resistencia a compresión uniaxial de la roca"
     )
 
-with col_main2:
+with col_ucs2:
     # Clasificación automática de roca (semáforo)
     if ucs_input < 50:
         tipo_roca = "🟢 Blanda"
@@ -1800,57 +1803,66 @@ with col_main2:
     
     st.metric("Tipo de Roca", tipo_roca)
 
-# ===== OPCIONES AVANZADAS (COLAPSADAS) =====
-with st.expander("⚙️ Opciones avanzadas (opcional)", expanded=False):
-    col_adv1, col_adv2 = st.columns(2)
-    
-    with col_adv1:
-        diametro_input = st.selectbox(
-            "Diámetro perforación (pulg)",
-            options=[5.0, 5.5, 6.0, 6.5, 6.75, 7.0, 7.875, 9.0, 10.625, 12.25],
-            index=4
-        )
-        
-        p80_objetivo = st.number_input("P80 objetivo máx (pulg)", 3.0, 15.0, 8.0, 0.5)
-        
-    with col_adv2:
-        explosivo_input = st.selectbox(
-            "Tipo de explosivo",
-            options=list(EXPLOSIVOS_PROPIEDADES.keys()),
-            index=0
-        )
-        
-        p100_objetivo = st.number_input("P100 objetivo máx (pulg)", 8.0, 30.0, 15.0, 1.0)
-    
-    st.markdown("**Prioridades de optimización:**")
-    col_p1, col_p2, col_p3 = st.columns(3)
-    with col_p1:
-        peso_metros = st.slider("Reducir metros", 0.0, 1.0, 0.40, 0.1)
-    with col_p2:
-        peso_p80 = st.slider("Reducir P80", 0.0, 1.0, 0.35, 0.1)
-    with col_p3:
-        peso_p100 = st.slider("Reducir P100", 0.0, 1.0, 0.25, 0.1)
+with col_ucs3:
+    altura_banco_est = st.number_input("Altura banco (m)", 10.0, 20.0, 15.0, 1.0)
 
-# Valores por defecto si no se abrió el expander
-if 'diametro_input' not in dir():
-    diametro_input = 6.75
-if 'explosivo_input' not in dir():
-    explosivo_input = list(EXPLOSIVOS_PROPIEDADES.keys())[0]
-if 'p80_objetivo' not in dir():
-    p80_objetivo = 8.0
-if 'p100_objetivo' not in dir():
-    p100_objetivo = 15.0
-if 'peso_metros' not in dir():
-    peso_metros = 0.40
-if 'peso_p80' not in dir():
-    peso_p80 = 0.35
-if 'peso_p100' not in dir():
-    peso_p100 = 0.25
+# Fila 2: Perforación y Explosivo
+st.markdown("**⚙️ Perforación y Explosivo:**")
+col_perf1, col_perf2, col_perf3 = st.columns(3)
 
-# Obtener propiedades del explosivo
-prop_explosivo = EXPLOSIVOS_PROPIEDADES.get(explosivo_input, {})
-densidad_exp = prop_explosivo.get('densidad', 1.2)
-vod_exp = prop_explosivo.get('VOD', 4500)
+with col_perf1:
+    diametro_input = st.selectbox(
+        "Diámetro perforación (pulg)",
+        options=[5.0, 5.5, 6.0, 6.5, 6.75, 7.0, 7.875, 9.0, 10.625, 12.25],
+        index=4
+    )
+
+with col_perf2:
+    explosivo_input = st.selectbox(
+        "Tipo de explosivo",
+        options=list(EXPLOSIVOS_PROPIEDADES.keys()),
+        index=0
+    )
+
+with col_perf3:
+    # Mostrar propiedades del explosivo seleccionado
+    prop_explosivo = EXPLOSIVOS_PROPIEDADES.get(explosivo_input, {})
+    densidad_exp = prop_explosivo.get('densidad', 1.2)
+    vod_exp = prop_explosivo.get('VOD', 4500)
+    st.markdown(f"**Propiedades:**")
+    st.caption(f"Densidad: {densidad_exp} g/cc | VOD: {vod_exp} m/s")
+
+# Fila 3: Objetivos de fragmentación
+st.markdown("**🎯 Objetivos de Fragmentación:**")
+col_obj1, col_obj2 = st.columns(2)
+
+with col_obj1:
+    p80_objetivo = st.number_input("P80 objetivo máx (pulg)", 3.0, 15.0, 8.0, 0.5)
+
+with col_obj2:
+    p100_objetivo = st.number_input("P100 objetivo máx (pulg)", 8.0, 30.0, 15.0, 1.0)
+
+# Fila 4: Prioridades de optimización
+st.markdown("**⚖️ Prioridades de Optimización:**")
+col_p1, col_p2, col_p3 = st.columns(3)
+with col_p1:
+    peso_metros = st.slider("Reducir metros", 0.0, 1.0, 0.40, 0.05, help="Mayor peso = prioriza menos metros perforados")
+with col_p2:
+    peso_p80 = st.slider("Reducir P80", 0.0, 1.0, 0.35, 0.05, help="Mayor peso = prioriza fragmentación fina")
+with col_p3:
+    peso_p100 = st.slider("Reducir P100", 0.0, 1.0, 0.25, 0.05, help="Mayor peso = prioriza menos sobretamaño")
+
+# ============================================
+# BOTÓN DE CÁLCULO
+# ============================================
+st.markdown("---")
+
+col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+with col_btn2:
+    calcular_btn = st.button("🔄 CALCULAR MALLA ÓPTIMA", use_container_width=True, type="primary")
+
+# Siempre calcular (para mostrar resultados reactivos)
+# El botón sirve como confirmación visual y para forzar recálculo
 
 # Normalizar pesos
 suma_pesos = peso_metros + peso_p80 + peso_p100
@@ -1858,7 +1870,7 @@ peso_metros_norm = peso_metros / suma_pesos if suma_pesos > 0 else 1/3
 peso_p80_norm = peso_p80 / suma_pesos if suma_pesos > 0 else 1/3
 peso_p100_norm = peso_p100 / suma_pesos if suma_pesos > 0 else 1/3
 
-# ===== CÁLCULOS AUTOMÁTICOS =====
+# ===== CÁLCULOS =====
 params_teoricos = calcular_parametros_teoricos_enaex(
     ucs=ucs_input,
     densidad_explosivo=densidad_exp,
@@ -1897,9 +1909,6 @@ params_multiobj = calcular_malla_optimizada_multiobjetivo(
 )
 
 # Calcular taco intermedio teórico (si aplica)
-# Taco intermedio se recomienda cuando la columna explosiva es larga (>10m)
-# Típicamente se coloca a 1/3 de la altura de la columna
-altura_banco_est = 15.0  # metros estimados
 longitud_carga = altura_banco_est - params_teoricos['taco_optimo'] - params_teoricos['pasadura_optima']
 usar_taco_intermedio = longitud_carga > 10
 
@@ -1925,6 +1934,31 @@ if col_ucs is not None and col_ucs in df_filtrado.columns:
         # Top 3 históricos con mejor P80
         top3_historico = df_hist.nsmallest(3, 'P80TRON')
         mejor_historico = top3_historico.iloc[0] if len(top3_historico) > 0 else None
+
+# ============================================
+# RESUMEN DE PARÁMETROS UTILIZADOS
+# ============================================
+with st.expander("📊 Ver parámetros utilizados en el cálculo", expanded=False):
+    col_res1, col_res2, col_res3 = st.columns(3)
+    
+    with col_res1:
+        st.markdown("**Roca:**")
+        st.write(f"- UCS: {ucs_input} MPa")
+        st.write(f"- Tipo: {tipo_roca}")
+        st.write(f"- Kb: {params_teoricos['Kb']}")
+        st.write(f"- Ks: {params_teoricos['Ks']}")
+    
+    with col_res2:
+        st.markdown("**Perforación:**")
+        st.write(f"- Diámetro: {diametro_input} pulg")
+        st.write(f"- Altura banco: {altura_banco_est} m")
+        st.write(f"- Columna explosiva: {round(longitud_carga, 2)} m")
+    
+    with col_res3:
+        st.markdown(f"**Explosivo ({explosivo_input}):**")
+        st.write(f"- Densidad: {densidad_exp} g/cc")
+        st.write(f"- VOD: {vod_exp} m/s")
+        st.write(f"- FC óptimo: {params_teoricos['fc_optimo']} kg/m³")
 
 # ============================================
 # PANEL PRINCIPAL: TOP 5 RECOMENDACIONES
