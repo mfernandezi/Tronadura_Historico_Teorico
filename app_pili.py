@@ -1736,17 +1736,17 @@ with col_main1:
 with col_main2:
     # Clasificación automática de roca
     if ucs_input < 50:
-        tipo_roca = "🟢 Blanda"
-        color_roca = "green"
+        tipo_roca = "🔵 Blanda"
+        color_roca = "#90caf9"
     elif ucs_input < 100:
-        tipo_roca = "🟡 Media"
-        color_roca = "orange"
+        tipo_roca = "🔷 Media"
+        color_roca = "#42a5f5"
     elif ucs_input < 150:
-        tipo_roca = "🟠 Dura"
-        color_roca = "red"
+        tipo_roca = "🔹 Dura"
+        color_roca = "#1976d2"
     else:
-        tipo_roca = "🔴 Muy Dura"
-        color_roca = "darkred"
+        tipo_roca = "⬛ Muy Dura"
+        color_roca = "#0d47a1"
     
     st.metric("Tipo de Roca", tipo_roca)
 
@@ -2037,10 +2037,10 @@ col_card1, col_card2, col_card3 = st.columns(3)
 
 with col_card1:
     st.markdown(f"""
-    <div style="background-color:#d4edda; padding:15px; border-radius:10px; border-left:5px solid #28a745;">
-    <h4 style="margin:0; color:#155724;">📐 TEÓRICA</h4>
-    <h2 style="margin:5px 0; color:#155724;">{params_teoricos['burden_optimo']} × {params_teoricos['espaciamiento_optimo']}</h2>
-    <p style="margin:0; color:#155724;">
+    <div style="background-color:#e3f2fd; padding:15px; border-radius:10px; border-left:5px solid #1976d2;">
+    <h4 style="margin:0; color:#0d47a1;">📐 TEÓRICA</h4>
+    <h2 style="margin:5px 0; color:#0d47a1;">{params_teoricos['burden_optimo']} × {params_teoricos['espaciamiento_optimo']}</h2>
+    <p style="margin:0; color:#1565c0;">
     Taco: {params_teoricos['taco_optimo']}m<br>
     Timing: {params_teoricos['timing_pozos_optimo']}/{params_teoricos['timing_filas_optimo']} ms<br>
     FC: {params_teoricos['fc_optimo']} kg/m³
@@ -2051,10 +2051,10 @@ with col_card1:
 with col_card2:
     cumple_icon = "✅" if (params_multiobj['cumple_P80'] and params_multiobj['cumple_P100']) else "⚠️"
     st.markdown(f"""
-    <div style="background-color:#fff3cd; padding:15px; border-radius:10px; border-left:5px solid #ffc107;">
-    <h4 style="margin:0; color:#856404;">⚡ OPTIMIZADA {cumple_icon}</h4>
-    <h2 style="margin:5px 0; color:#856404;">{params_multiobj['burden_optimo']} × {params_multiobj['espaciamiento_optimo']}</h2>
-    <p style="margin:0; color:#856404;">
+    <div style="background-color:#bbdefb; padding:15px; border-radius:10px; border-left:5px solid #1565c0;">
+    <h4 style="margin:0; color:#0d47a1;">⚡ OPTIMIZADA {cumple_icon}</h4>
+    <h2 style="margin:5px 0; color:#0d47a1;">{params_multiobj['burden_optimo']} × {params_multiobj['espaciamiento_optimo']}</h2>
+    <p style="margin:0; color:#1565c0;">
     P80: {params_multiobj['P80_estimado']}" | P100: {params_multiobj['P100_estimado']}"<br>
     Timing: {params_multiobj['timing_pozos']}/{params_multiobj['timing_filas']} ms<br>
     <b>Ahorro: {params_multiobj['reduccion_metros_pct']}% metros</b>
@@ -2065,10 +2065,10 @@ with col_card2:
 with col_card3:
     if mejor_historico is not None and pd.notna(burden_hist) and pd.notna(esp_hist):
         st.markdown(f"""
-        <div style="background-color:#cce5ff; padding:15px; border-radius:10px; border-left:5px solid #004085;">
-        <h4 style="margin:0; color:#004085;">📊 HISTÓRICA</h4>
-        <h2 style="margin:5px 0; color:#004085;">{burden_hist} × {esp_hist}</h2>
-        <p style="margin:0; color:#004085;">
+        <div style="background-color:#90caf9; padding:15px; border-radius:10px; border-left:5px solid #0d47a1;">
+        <h4 style="margin:0; color:#0d47a1;">📊 HISTÓRICA</h4>
+        <h2 style="margin:5px 0; color:#0d47a1;">{burden_hist} × {esp_hist}</h2>
+        <p style="margin:0; color:#1565c0;">
         P80: {round(p80_hist, 1) if pd.notna(p80_hist) else '-'}" | P100: {round(p100_hist, 1) if pd.notna(p100_hist) else '-'}"<br>
         Timing: {tp_hist}/{tf_hist} ms<br>
         <b>Resultado real probado</b>
@@ -2077,10 +2077,10 @@ with col_card3:
         """, unsafe_allow_html=True)
     else:
         st.markdown(f"""
-        <div style="background-color:#e2e3e5; padding:15px; border-radius:10px; border-left:5px solid #6c757d;">
-        <h4 style="margin:0; color:#383d41;">📊 HISTÓRICA</h4>
-        <h2 style="margin:5px 0; color:#383d41;">Sin datos</h2>
-        <p style="margin:0; color:#383d41;">
+        <div style="background-color:#e3f2fd; padding:15px; border-radius:10px; border-left:5px solid #90a4ae;">
+        <h4 style="margin:0; color:#546e7a;">📊 HISTÓRICA</h4>
+        <h2 style="margin:5px 0; color:#546e7a;">Sin datos</h2>
+        <p style="margin:0; color:#78909c;">
         No hay tronaduras históricas<br>
         para UCS ≈ {ucs_input} MPa<br>
         en los datos cargados
@@ -2358,9 +2358,9 @@ with st.expander("📈 Análisis de Sensibilidad (¿Qué variable influye más?)
     y_pos = np.arange(len(variables))
     
     # Barras hacia la derecha (aumento del parámetro)
-    bars_up = ax_sens.barh(y_pos, cambios_up, height=0.4, label='+20% parámetro', color='#e74c3c', alpha=0.8)
+    bars_up = ax_sens.barh(y_pos, cambios_up, height=0.4, label='+20% parámetro', color='#1565c0', alpha=0.8)
     # Barras hacia la izquierda (disminución del parámetro)
-    bars_down = ax_sens.barh(y_pos, cambios_down, height=0.4, label='-20% parámetro', color='#3498db', alpha=0.8)
+    bars_down = ax_sens.barh(y_pos, cambios_down, height=0.4, label='-20% parámetro', color='#90caf9', alpha=0.8)
     
     ax_sens.set_yticks(y_pos)
     ax_sens.set_yticklabels(variables)
