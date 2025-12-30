@@ -1723,9 +1723,158 @@ Esta sección presenta **tres tipos de recomendaciones** para optimizar la malla
 
 1. **📊 Histórica**: Basada en las mejores configuraciones observadas en los datos reales
 2. **📐 Teórica ENAEX**: Basada en fórmulas del Manual de Tronadura ENAEX
-3. **🎯 Mínimo Metros**: Optimizada para reducir perforación manteniendo control de fragmentación
+3. **⚡ Multi-Objetivo**: Optimizada para minimizar metros, P80 y P100 simultáneamente
 
 """)
+
+# Expander con fórmulas teóricas
+with st.expander("📚 Ver Fórmulas Teóricas y Explicaciones", expanded=False):
+    st.markdown("""
+    ## Fórmulas Teóricas ENAEX
+    
+    Las siguientes fórmulas están basadas en el **Manual de Tronadura ENAEX** y representan 
+    décadas de investigación y práctica en voladura de rocas.
+    
+    ---
+    
+    ### 1. Burden Óptimo (Fórmula de Ash Modificada)
+    
+    El burden es la distancia entre la fila de pozos y la cara libre. Es el parámetro más 
+    crítico en el diseño de voladura.
+    
+    ```
+    B = (Kb × De × (ρe/ρr)^0.33 × (VOD/4000)^0.5) / 39.37
+    ```
+    
+    | Variable | Descripción | Valores típicos |
+    |----------|-------------|-----------------|
+    | **Kb** | Constante de burden según dureza | 25-35 |
+    | **De** | Diámetro perforación (pulgadas) | 5-12" |
+    | **ρe** | Densidad explosivo (g/cc) | 0.8-1.35 |
+    | **ρr** | Densidad roca (g/cc) | ≈ 2.65 |
+    | **VOD** | Velocidad detonación (m/s) | 3000-6000 |
+    
+    **Constante Kb según UCS:**
+    - UCS < 50 MPa (blanda): Kb = 35
+    - UCS 50-100 MPa (media): Kb = 30
+    - UCS 100-150 MPa (dura): Kb = 28
+    - UCS > 150 MPa (muy dura): Kb = 25
+    
+    ---
+    
+    ### 2. Espaciamiento Óptimo
+    
+    El espaciamiento es la distancia entre pozos en la misma fila.
+    
+    ```
+    S = Ks × B
+    ```
+    
+    **Ratio S/B (Ks) según UCS:**
+    - Roca blanda: Ks = 1.40 (mayor espaciamiento)
+    - Roca media: Ks = 1.30
+    - Roca dura: Ks = 1.20
+    - Roca muy dura: Ks = 1.15 (menor espaciamiento)
+    
+    ---
+    
+    ### 3. Timing Óptimo (Método Konya)
+    
+    El timing controla la secuencia de detonación y es crítico para la fragmentación.
+    
+    ```
+    Timing entre pozos: tp = Th × S
+    Timing entre filas: tf = 11.5 × B
+    ```
+    
+    **Constante Th según tipo de roca:**
+    - Arena, margas (UCS < 50): Th = 6.5 ms/m
+    - Calizas, esquistos (50-80): Th = 5.5 ms/m
+    - Granitos (80-120): Th = 4.5 ms/m
+    - Gneis compactos (> 120): Th = 3.5 ms/m
+    
+    ---
+    
+    ### 4. Taco Óptimo
+    
+    El taco es la longitud de material inerte sobre la carga explosiva.
+    
+    ```
+    Taco óptimo: T = 0.85 × B
+    Taco mínimo: T = 0.70 × B (riesgo de flyrock si es menor)
+    ```
+    
+    ---
+    
+    ### 5. Factor de Carga Óptimo
+    
+    Cantidad de explosivo por unidad de volumen de roca.
+    
+    | UCS (MPa) | Tipo de roca | FC óptimo (kg/m³) |
+    |-----------|--------------|-------------------|
+    | < 50 | Blanda | 0.35 |
+    | 50-100 | Media | 0.50 |
+    | 100-150 | Dura | 0.75 |
+    | > 150 | Muy dura | 1.00 |
+    
+    ---
+    
+    ## Modelo de Fragmentación (Optimización Multi-Objetivo)
+    
+    Para estimar P80 y P100, se utiliza un modelo empírico basado en Kuz-Ram:
+    
+    ### Fórmula de P80 Estimado
+    
+    ```
+    P80 = K_base × f_malla × f_roca × f_energia × f_timing × f_vod
+    ```
+    
+    | Factor | Fórmula | Efecto |
+    |--------|---------|--------|
+    | **K_base** | 5.5 | Constante base (pulgadas) |
+    | **f_malla** | (B×S / 20)^0.40 | Área mayor → P80 mayor |
+    | **f_roca** | (UCS / 100)^0.35 | Roca más dura → P80 mayor |
+    | **f_energia** | (0.75 / FC)^0.30 | Más FC → P80 menor |
+    | **f_timing** | 1 + penalizaciones | Timing subóptimo → P80 mayor |
+    | **f_vod** | (4500 / VOD)^0.15 | Mayor VOD → P80 menor |
+    
+    ### Fórmula de P100 Estimado
+    
+    ```
+    P100 = P80 × k_ratio
+    ```
+    
+    - k_ratio = 1.8 si S/B está entre 1.10 y 1.30 (óptimo)
+    - k_ratio = 1.9-2.1 fuera del rango óptimo
+    
+    ---
+    
+    ## Función de Optimización Multi-Objetivo
+    
+    Busca el mejor balance entre tres objetivos:
+    
+    ```
+    J(B, S, FC) = w₁×f_metros + w₂×f_P80 + w₃×f_P100
+    ```
+    
+    | Objetivo | Descripción | Peso default |
+    |----------|-------------|--------------|
+    | **f_metros** | Minimizar metros de perforación | 40% |
+    | **f_P80** | Minimizar P80 (fragmentación fina) | 35% |
+    | **f_P100** | Minimizar P100 (menos sobretamaño) | 25% |
+    
+    El algoritmo busca el factor de expansión óptimo (1.00 a 1.20) que minimiza J
+    mientras cumple con los objetivos de P80 y P100.
+    
+    ---
+    
+    ## Referencias
+    
+    - Manual de Tronadura ENAEX
+    - Ash, R.L. (1963) - The Mechanics of Rock Breakage
+    - Konya, C.J. (1995) - Blast Design
+    - Cunningham, C.V.B. (1983) - The Kuz-Ram Model for Prediction of Fragmentation
+    """)
 
 # Inputs para los cálculos teóricos
 st.subheader("Parámetros de entrada para cálculos teóricos")
@@ -1830,6 +1979,15 @@ if st.button("🔄 Calcular Recomendaciones", type="primary"):
     st.markdown("---")
     st.subheader("📐 Recomendación Teórica (ENAEX)")
     
+    st.info("""
+    💡 **¿Qué es la Recomendación Teórica?**
+    
+    Esta recomendación calcula los parámetros óptimos usando las fórmulas del **Manual de Tronadura ENAEX**, 
+    que representan las mejores prácticas de la industria basadas en décadas de investigación.
+    
+    Es el punto de partida "ideal" según la teoría, sin considerar restricciones operacionales.
+    """)
+    
     params_teoricos = calcular_parametros_teoricos_enaex(
         ucs=ucs_input,
         densidad_explosivo=densidad_exp,
@@ -1840,18 +1998,18 @@ if st.button("🔄 Calcular Recomendaciones", type="primary"):
     st.markdown(f"""
     **Parámetros calculados según fórmulas ENAEX para UCS = {ucs_input} MPa:**
     
-    | Parámetro | Valor Óptimo | Descripción |
-    |-----------|--------------|-------------|
-    | **Burden** | {params_teoricos['burden_optimo']} m | Fórmula Ash modificada (Kb={params_teoricos['Kb']}) |
-    | **Espaciamiento** | {params_teoricos['espaciamiento_optimo']} m | Ratio S/B = {params_teoricos['ratio_SB']} |
-    | **Área de malla** | {params_teoricos['area_malla']} m² | B × S |
-    | **Taco óptimo** | {params_teoricos['taco_optimo']} m | 0.85 × Burden |
-    | **Taco mínimo** | {params_teoricos['taco_minimo']} m | 0.70 × Burden |
-    | **Timing pozos** | {params_teoricos['timing_pozos_optimo']} ms | Th={params_teoricos['Th']} ms/m × S |
-    | **Timing filas** | {params_teoricos['timing_filas_optimo']} ms | 11.5 ms/m × B |
+    | Parámetro | Valor Óptimo | Fórmula / Descripción |
+    |-----------|--------------|----------------------|
+    | **Burden** | {params_teoricos['burden_optimo']} m | `B = Kb×De×(ρe/ρr)^0.33×(VOD/4000)^0.5` (Kb={params_teoricos['Kb']}) |
+    | **Espaciamiento** | {params_teoricos['espaciamiento_optimo']} m | `S = Ks × B` (Ks={params_teoricos['ratio_SB']}) |
+    | **Área de malla** | {params_teoricos['area_malla']} m² | `Área = B × S` |
+    | **Taco óptimo** | {params_teoricos['taco_optimo']} m | `T = 0.85 × B` |
+    | **Taco mínimo** | {params_teoricos['taco_minimo']} m | `T_min = 0.70 × B` (límite seguridad flyrock) |
+    | **Timing pozos** | {params_teoricos['timing_pozos_optimo']} ms | `tp = Th × S` (Th={params_teoricos['Th']} ms/m) |
+    | **Timing filas** | {params_teoricos['timing_filas_optimo']} ms | `tf = 11.5 × B` |
     | **Factor de carga** | {params_teoricos['fc_optimo']} kg/m³ | Según dureza de roca |
-    | **Pasadura** | {params_teoricos['pasadura_optima']} m | 0.3 × Burden |
-    | **Explosivo recomendado** | {params_teoricos['explosivo_recomendado']} | Según UCS |
+    | **Pasadura** | {params_teoricos['pasadura_optima']} m | `J = 0.3 × B` |
+    | **Explosivo recomendado** | {params_teoricos['explosivo_recomendado']} | Según rango de UCS |
     """)
     
     # Mostrar BxS como string
@@ -1861,6 +2019,20 @@ if st.button("🔄 Calcular Recomendaciones", type="primary"):
     # ====== RECOMENDACIÓN MÍNIMO METROS ======
     st.markdown("---")
     st.subheader("🎯 Recomendación Mínimo Metros de Perforación")
+    
+    st.info("""
+    💡 **¿Qué es la Recomendación Mínimo Metros?**
+    
+    Esta recomendación **expande la malla teórica** para reducir la cantidad de pozos a perforar,
+    lo cual es útil cuando:
+    - El rendimiento de las perforadoras es limitado
+    - Se busca reducir costos de perforación
+    - Se tiene capacidad de compensar con más explosivo
+    
+    **Compensaciones aplicadas:**
+    - Mayor factor de carga (más explosivo por pozo)
+    - Timing más rápido para mantener fragmentación
+    """)
     
     params_minmetros = calcular_malla_minimos_metros(
         ucs=ucs_input,
@@ -1878,15 +2050,15 @@ if st.button("🔄 Calcular Recomendaciones", type="primary"):
     Esta recomendación expande la malla teórica un **{params_minmetros['factor_expansion_usado']*100 - 100:.0f}%** 
     para reducir la cantidad de pozos, compensando con mayor factor de carga y ajuste de timing.
     
-    | Parámetro | Valor | Descripción |
-    |-----------|-------|-------------|
-    | **Burden** | {params_minmetros['burden_minmetros']} m | Expandido {params_minmetros['factor_expansion_usado']}x |
-    | **Espaciamiento** | {params_minmetros['espaciamiento_minmetros']} m | Expandido {params_minmetros['factor_expansion_usado']}x |
-    | **Área de malla** | {params_minmetros['area_malla_expandida']} m² | ↑ Mayor área = menos pozos |
-    | **Taco ajustado** | {params_minmetros['taco_ajustado']} m | 0.85 × Burden expandido |
-    | **Timing pozos** | {params_minmetros['timing_pozos_ajustado']} ms | Reducido 10% para compensar |
-    | **Timing filas** | {params_minmetros['timing_filas_ajustado']} ms | Reducido 5% para compensar |
-    | **Factor de carga** | {params_minmetros['fc_compensado']} kg/m³ | Aumentado para mantener energía |
+    | Parámetro | Valor | Fórmula / Descripción |
+    |-----------|-------|----------------------|
+    | **Burden** | {params_minmetros['burden_minmetros']} m | `B_exp = B_teorico × {params_minmetros['factor_expansion_usado']}` |
+    | **Espaciamiento** | {params_minmetros['espaciamiento_minmetros']} m | `S_exp = S_teorico × {params_minmetros['factor_expansion_usado']}` |
+    | **Área de malla** | {params_minmetros['area_malla_expandida']} m² | `Área = B_exp × S_exp` (↑ Mayor = menos pozos) |
+    | **Taco ajustado** | {params_minmetros['taco_ajustado']} m | `T = 0.85 × B_exp` |
+    | **Timing pozos** | {params_minmetros['timing_pozos_ajustado']} ms | `tp_adj = tp_opt × 0.90` (más rápido) |
+    | **Timing filas** | {params_minmetros['timing_filas_ajustado']} ms | `tf_adj = tf_opt × 0.95` |
+    | **Factor de carga** | {params_minmetros['fc_compensado']} kg/m³ | `FC_adj = FC_opt × factor^1.5` |
     | **Reducción de pozos** | {params_minmetros['reduccion_pozos_pct']}% | vs. malla teórica |
     """)
     
@@ -1905,6 +2077,19 @@ if st.button("🔄 Calcular Recomendaciones", type="primary"):
     st.markdown("---")
     st.subheader("⚡ Optimización Multi-Objetivo (Minimiza Metros + P80 + P100)")
     
+    st.info("""
+    💡 **¿Qué es la Optimización Multi-Objetivo?**
+    
+    Esta es la **recomendación más avanzada**. Busca el mejor balance entre tres objetivos que 
+    normalmente están en conflicto:
+    
+    1. **Minimizar metros de perforación** → Quiere mallas más grandes
+    2. **Minimizar P80** → Quiere mallas más pequeñas y más energía
+    3. **Minimizar P100** → Quiere timing y geometría óptimos
+    
+    El algoritmo encuentra el **punto óptimo** que satisface todos los objetivos según los pesos asignados.
+    """)
+    
     params_multiobj = calcular_malla_optimizada_multiobjetivo(
         ucs=ucs_input,
         densidad_explosivo=densidad_exp,
@@ -1918,22 +2103,35 @@ if st.button("🔄 Calcular Recomendaciones", type="primary"):
     )
     
     st.markdown(f"""
-    ### Fórmula de Optimización Multi-Objetivo
+    ### Función Objetivo Minimizada
     
-    **Función Objetivo:**
     ```
-    J(B, S, FC) = {peso_metros_norm:.2f}×f_metros + {peso_p80_norm:.2f}×f_P80 + {peso_p100_norm:.2f}×f_P100
-    ```
-    
-    **Modelo de Fragmentación (Kuz-Ram simplificado):**
-    ```
-    P80 = 0.015 × (B×S)^0.45 × UCS^0.25 × (1/FC)^0.35 × (1000/VOD)^0.15 × f_timing
-    P100 = P80 × k_ratio  (k_ratio = 1.8-2.1 según S/B)
+    J(B, S, FC) = {peso_metros_norm:.2f} × f_metros + {peso_p80_norm:.2f} × f_P80 + {peso_p100_norm:.2f} × f_P100
     ```
     
-    **Factor de Timing:**
+    | Componente | Peso | Descripción |
+    |------------|------|-------------|
+    | **f_metros** | {peso_metros_norm:.0%} | Metros perforados por m² (menor = mejor) |
+    | **f_P80** | {peso_p80_norm:.0%} | P80 estimado / P80 objetivo |
+    | **f_P100** | {peso_p100_norm:.0%} | P100 estimado / P100 objetivo |
+    
+    ### Modelo de Fragmentación Utilizado
+    
     ```
-    f_timing = 1 + 0.1×|tp/tp_opt - 1| + 0.15×|tf/tf_opt - 1|
+    P80 = K_base × f_malla × f_roca × f_energia × f_timing × f_vod
+    ```
+    
+    | Factor | Fórmula | Interpretación |
+    |--------|---------|----------------|
+    | **K_base** | 5.5" | Constante base calibrada |
+    | **f_malla** | (B×S/20)^0.40 | Área mayor → P80 aumenta |
+    | **f_roca** | (UCS/100)^0.35 | Roca más dura → P80 aumenta |
+    | **f_energia** | (0.75/FC)^0.30 | Más FC → P80 disminuye |
+    | **f_timing** | 1 + penalizaciones | Timing subóptimo → P80 aumenta |
+    | **f_vod** | (4500/VOD)^0.15 | Mayor VOD → P80 disminuye |
+    
+    ```
+    P100 = P80 × k_ratio   (k_ratio = 1.8 si S/B óptimo, hasta 2.1 si no)
     ```
     """)
     
