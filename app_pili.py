@@ -13,6 +13,291 @@ import os
 # FICHA TÉCNICA EXPLOSIVOS (generado desde el CSV explosivos_final (1).csv)
 # Nota: la app NO lee el CSV en tiempo de ejecución; los datos están embebidos aquí.
 # ============================================
+
+# ============================================
+# FÓRMULAS TEÓRICAS ENAEX
+# ============================================
+# Basado en Manual de Tronadura ENAEX
+# Incluye cálculos de parámetros óptimos según teoría
+
+def calcular_Kb_enaex(ucs):
+    """
+    Constante de burden según dureza de roca (Manual ENAEX).
+    
+    Parámetros:
+    - ucs: Resistencia a compresión uniaxial (MPa)
+    
+    Retorna:
+    - Kb: Constante para cálculo de burden óptimo
+    """
+    if pd.isna(ucs):
+        return 30
+    if ucs < 50:
+        return 35  # Roca blanda
+    elif ucs < 100:
+        return 30  # Roca media
+    elif ucs < 150:
+        return 28  # Roca dura
+    else:
+        return 25  # Roca muy dura
+
+
+def calcular_Ks_enaex(ucs):
+    """
+    Constante S/B (Espaciamiento/Burden) según dureza de roca.
+    
+    Parámetros:
+    - ucs: Resistencia a compresión uniaxial (MPa)
+    
+    Retorna:
+    - Ks: Ratio óptimo S/B
+    """
+    if pd.isna(ucs):
+        return 1.25
+    if ucs < 50:
+        return 1.40  # Roca blanda - mayor espaciamiento
+    elif ucs < 100:
+        return 1.30  # Roca media
+    elif ucs < 150:
+        return 1.20  # Roca dura
+    else:
+        return 1.15  # Roca muy dura - menor espaciamiento
+
+
+def calcular_Th_enaex(ucs):
+    """
+    Constante de timing entre pozos según Konya (Manual ENAEX Tabla 7.1).
+    
+    Parámetros:
+    - ucs: Resistencia a compresión uniaxial (MPa)
+    
+    Retorna:
+    - Th: Constante de timing (ms/m)
+    """
+    if pd.isna(ucs):
+        return 4.5
+    if ucs < 50:
+        return 6.5  # Arena, margas
+    elif ucs < 80:
+        return 5.5  # Calizas, esquistos
+    elif ucs < 120:
+        return 4.5  # Calizas compactas, granitos
+    else:
+        return 3.5  # Gneis compactos
+
+
+def calcular_fc_optimo_enaex(ucs):
+    """
+    Factor de carga óptimo según UCS (kg/m³).
+    
+    Parámetros:
+    - ucs: Resistencia a compresión uniaxial (MPa)
+    
+    Retorna:
+    - FC óptimo (kg/m³)
+    """
+    if pd.isna(ucs):
+        return 0.5
+    if ucs < 50:
+        return 0.35  # Roca blanda
+    elif ucs < 100:
+        return 0.50  # Roca media
+    elif ucs < 150:
+        return 0.75  # Roca dura
+    else:
+        return 1.00  # Roca muy dura
+
+
+def recomendar_explosivo_enaex(ucs):
+    """
+    Recomienda tipo de explosivo según UCS (Manual ENAEX).
+    
+    Parámetros:
+    - ucs: Resistencia a compresión uniaxial (MPa)
+    
+    Retorna:
+    - Explosivo recomendado (string)
+    """
+    if pd.isna(ucs):
+        ucs = 100
+    
+    if ucs < 50:
+        return 'ANFO / Blendex 920-930'
+    elif ucs < 80:
+        return 'Blendex 940-950 / Vertex ALR'
+    elif ucs < 120:
+        return 'Emultex BN / Energex 50'
+    elif ucs < 180:
+        return 'Energex 70 / Pirex S'
+    else:
+        return 'Pirex S Plus / Energex 70 Plus'
+
+
+def calcular_parametros_teoricos_enaex(ucs, densidad_explosivo=1.2, vod=4500, diametro_pulg=6.75):
+    """
+    Calcula todos los parámetros óptimos de malla según teoría ENAEX.
+    
+    Fórmulas ENAEX (Manual de Tronadura):
+    =====================================
+    
+    1. BURDEN ÓPTIMO (Ash modificado):
+       B = Kb × De × (ρe/ρr)^0.33 × (VOD/4000)^0.5
+       Donde:
+       - Kb = 25-40 (constante según tipo de roca)
+       - De = diámetro de perforación (pulg)
+       - ρe = densidad explosivo (g/cc)
+       - ρr = densidad roca (g/cc) ≈ 2.65
+       - VOD = velocidad detonación (m/s)
+    
+    2. ESPACIAMIENTO ÓPTIMO:
+       S = Ks × B
+       Donde Ks = 1.15 (roca dura) a 1.40 (roca blanda)
+    
+    3. TACO ÓPTIMO:
+       T = 0.85 × B (rango 0.7 a 1.0 × B)
+    
+    4. TIMING POZOS (Konya):
+       tp = Th × S (Th = 3.5-6.5 ms/m según roca)
+    
+    5. TIMING FILAS:
+       tf = 11.5 × B (para fragmentación óptima)
+    
+    Parámetros:
+    - ucs: Resistencia a compresión uniaxial (MPa)
+    - densidad_explosivo: Densidad del explosivo (g/cc)
+    - vod: Velocidad de detonación (m/s)
+    - diametro_pulg: Diámetro de perforación (pulgadas)
+    
+    Retorna:
+    - Diccionario con parámetros óptimos
+    """
+    rho_roca = 2.65  # Densidad típica de roca (g/cc)
+    
+    # Constantes según UCS
+    Kb = calcular_Kb_enaex(ucs)
+    Ks = calcular_Ks_enaex(ucs)
+    Th = calcular_Th_enaex(ucs)
+    fc_optimo = calcular_fc_optimo_enaex(ucs)
+    
+    # Burden óptimo (Ash modificado) - convertir a metros
+    burden_optimo = (
+        Kb * diametro_pulg * 
+        ((densidad_explosivo / rho_roca) ** 0.33) * 
+        ((vod / 4000) ** 0.5)
+    ) / 39.37  # pulgadas a metros
+    
+    # Espaciamiento óptimo
+    espaciamiento_optimo = Ks * burden_optimo
+    
+    # Área de malla
+    area_malla = burden_optimo * espaciamiento_optimo
+    
+    # Taco óptimo
+    taco_optimo = 0.85 * burden_optimo
+    taco_minimo = 0.70 * burden_optimo
+    
+    # Timing óptimo
+    timing_pozos_optimo = Th * espaciamiento_optimo
+    timing_filas_optimo = 11.5 * burden_optimo  # ms/m para fragmentación óptima
+    
+    # Pasadura (subdrilling)
+    pasadura_optima = 0.3 * burden_optimo
+    
+    # Explosivo recomendado
+    explosivo_recomendado = recomendar_explosivo_enaex(ucs)
+    
+    return {
+        'burden_optimo': round(burden_optimo, 2),
+        'espaciamiento_optimo': round(espaciamiento_optimo, 2),
+        'area_malla': round(area_malla, 2),
+        'ratio_SB': round(Ks, 2),
+        'taco_optimo': round(taco_optimo, 2),
+        'taco_minimo': round(taco_minimo, 2),
+        'timing_pozos_optimo': round(timing_pozos_optimo, 1),
+        'timing_filas_optimo': round(timing_filas_optimo, 1),
+        'fc_optimo': round(fc_optimo, 2),
+        'pasadura_optima': round(pasadura_optima, 2),
+        'explosivo_recomendado': explosivo_recomendado,
+        'Kb': Kb,
+        'Ks': Ks,
+        'Th': Th
+    }
+
+
+def calcular_malla_minimos_metros(ucs, densidad_explosivo=1.2, vod=4500, diametro_pulg=6.75,
+                                   p80_objetivo=8.0, p100_objetivo=15.0, 
+                                   factor_expansion=1.15):
+    """
+    Calcula parámetros de malla optimizados para minimizar metros de perforación
+    manteniendo control sobre fragmentación.
+    
+    Esta función expande la malla teórica ENAEX dentro de límites seguros,
+    priorizando la reducción de metros perforados por consideraciones de
+    rendimiento de perforadoras.
+    
+    Parámetros:
+    - ucs: Resistencia a compresión uniaxial (MPa)
+    - densidad_explosivo: Densidad del explosivo (g/cc)
+    - vod: Velocidad de detonación (m/s)
+    - diametro_pulg: Diámetro de perforación (pulgadas)
+    - p80_objetivo: P80 objetivo máximo (pulgadas)
+    - p100_objetivo: P100 objetivo máximo (pulgadas)
+    - factor_expansion: Factor de expansión de malla (1.0-1.25)
+    
+    Retorna:
+    - Diccionario con parámetros optimizados para mínimos metros
+    """
+    # Obtener parámetros teóricos base
+    params_teoricos = calcular_parametros_teoricos_enaex(
+        ucs, densidad_explosivo, vod, diametro_pulg
+    )
+    
+    # Expandir malla según factor (con límites de seguridad)
+    # Factor limitado según dureza de roca
+    if pd.isna(ucs) or ucs >= 120:
+        # Roca dura: menor expansión permitida
+        factor_expansion = min(factor_expansion, 1.10)
+    elif ucs >= 80:
+        factor_expansion = min(factor_expansion, 1.15)
+    else:
+        # Roca blanda: puede expandir más
+        factor_expansion = min(factor_expansion, 1.20)
+    
+    # Expandir burden y espaciamiento
+    burden_expandido = params_teoricos['burden_optimo'] * factor_expansion
+    espaciamiento_expandido = params_teoricos['espaciamiento_optimo'] * factor_expansion
+    area_malla_expandida = burden_expandido * espaciamiento_expandido
+    
+    # Compensar con mayor FC para mantener energía
+    fc_compensado = params_teoricos['fc_optimo'] * (factor_expansion ** 1.5)
+    
+    # Ajustar timing para compensar malla más grande
+    timing_pozos_ajustado = params_teoricos['timing_pozos_optimo'] * 0.9  # Más rápido
+    timing_filas_ajustado = params_teoricos['timing_filas_optimo'] * 0.95
+    
+    # Taco ajustado (mantener ratio con nuevo burden)
+    taco_ajustado = 0.85 * burden_expandido
+    
+    # Calcular reducción de metros por m²
+    reduccion_pozos = 1 - (params_teoricos['area_malla'] / area_malla_expandida)
+    
+    return {
+        'burden_minmetros': round(burden_expandido, 2),
+        'espaciamiento_minmetros': round(espaciamiento_expandido, 2),
+        'area_malla_expandida': round(area_malla_expandida, 2),
+        'ratio_SB': params_teoricos['ratio_SB'],
+        'taco_ajustado': round(taco_ajustado, 2),
+        'timing_pozos_ajustado': round(timing_pozos_ajustado, 1),
+        'timing_filas_ajustado': round(timing_filas_ajustado, 1),
+        'fc_compensado': round(fc_compensado, 2),
+        'factor_expansion_usado': round(factor_expansion, 2),
+        'reduccion_pozos_pct': round(reduccion_pozos * 100, 1),
+        'explosivo_recomendado': params_teoricos['explosivo_recomendado'],
+        'p80_objetivo': p80_objetivo,
+        'p100_objetivo': p100_objetivo,
+        'advertencias': []
+    }
+
 EXPLOSIVOS_CSV = {'Blendex_920': {'Densidad_g_cc': 0.9,
                  'Diam_Min_pulg': 4.0,
                  'Duracion_dias': 60,
@@ -1168,6 +1453,352 @@ else:
         )
 
         st.dataframe(df_top[cols_conf_unicas], use_container_width=True)
+
+# ============================================
+# SECCIÓN 1.1: RECOMENDACIONES DE MALLA
+# ============================================
+
+st.markdown("---")
+st.header("Sección 1.1: Recomendaciones de Mejor Malla")
+
+st.markdown("""
+Esta sección presenta **tres tipos de recomendaciones** para optimizar la malla de perforación:
+
+1. **📊 Histórica**: Basada en las mejores configuraciones observadas en los datos reales
+2. **📐 Teórica ENAEX**: Basada en fórmulas del Manual de Tronadura ENAEX
+3. **🎯 Mínimo Metros**: Optimizada para reducir perforación manteniendo control de fragmentación
+
+""")
+
+# Inputs para los cálculos teóricos
+st.subheader("Parámetros de entrada para cálculos teóricos")
+
+col_input1, col_input2, col_input3 = st.columns(3)
+
+with col_input1:
+    ucs_input = st.number_input(
+        "UCS objetivo (MPa)",
+        min_value=20.0,
+        max_value=300.0,
+        value=100.0,
+        step=10.0,
+        help="Resistencia a compresión uniaxial de la roca objetivo"
+    )
+
+with col_input2:
+    diametro_input = st.selectbox(
+        "Diámetro de perforación (pulgadas)",
+        options=[5.0, 5.5, 6.0, 6.5, 6.75, 7.0, 7.875, 9.0, 10.625, 12.25],
+        index=4,
+        help="Diámetro del pozo de perforación"
+    )
+
+with col_input3:
+    explosivo_input = st.selectbox(
+        "Tipo de explosivo",
+        options=list(EXPLOSIVOS_PROPIEDADES.keys()),
+        index=0,
+        help="Selecciona el explosivo para obtener densidad y VOD"
+    )
+
+# Obtener propiedades del explosivo seleccionado
+prop_explosivo = EXPLOSIVOS_PROPIEDADES.get(explosivo_input, {})
+densidad_exp = prop_explosivo.get('densidad', 1.2)
+vod_exp = prop_explosivo.get('VOD', 4500)
+
+col_exp1, col_exp2 = st.columns(2)
+with col_exp1:
+    st.info(f"**Densidad**: {densidad_exp} g/cc")
+with col_exp2:
+    st.info(f"**VOD**: {vod_exp} m/s")
+
+# Opciones adicionales
+col_opt1, col_opt2 = st.columns(2)
+with col_opt1:
+    p80_objetivo = st.number_input(
+        "P80 objetivo máximo (pulgadas)",
+        min_value=3.0,
+        max_value=15.0,
+        value=8.0,
+        step=0.5,
+        help="P80 objetivo para recomendación de mínimo metros"
+    )
+with col_opt2:
+    p100_objetivo = st.number_input(
+        "P100 objetivo máximo (pulgadas)",
+        min_value=8.0,
+        max_value=30.0,
+        value=15.0,
+        step=1.0,
+        help="P100 objetivo para recomendación de mínimo metros"
+    )
+
+factor_expansion = st.slider(
+    "Factor de expansión de malla (para recomendación mínimo metros)",
+    min_value=1.00,
+    max_value=1.25,
+    value=1.15,
+    step=0.05,
+    help="Factor para expandir la malla teórica. Mayor = menos pozos pero más riesgo de fragmentación gruesa"
+)
+
+# Botón para calcular recomendaciones
+if st.button("🔄 Calcular Recomendaciones", type="primary"):
+    
+    # ====== RECOMENDACIÓN TEÓRICA ENAEX ======
+    st.markdown("---")
+    st.subheader("📐 Recomendación Teórica (ENAEX)")
+    
+    params_teoricos = calcular_parametros_teoricos_enaex(
+        ucs=ucs_input,
+        densidad_explosivo=densidad_exp,
+        vod=vod_exp,
+        diametro_pulg=diametro_input
+    )
+    
+    st.markdown(f"""
+    **Parámetros calculados según fórmulas ENAEX para UCS = {ucs_input} MPa:**
+    
+    | Parámetro | Valor Óptimo | Descripción |
+    |-----------|--------------|-------------|
+    | **Burden** | {params_teoricos['burden_optimo']} m | Fórmula Ash modificada (Kb={params_teoricos['Kb']}) |
+    | **Espaciamiento** | {params_teoricos['espaciamiento_optimo']} m | Ratio S/B = {params_teoricos['ratio_SB']} |
+    | **Área de malla** | {params_teoricos['area_malla']} m² | B × S |
+    | **Taco óptimo** | {params_teoricos['taco_optimo']} m | 0.85 × Burden |
+    | **Taco mínimo** | {params_teoricos['taco_minimo']} m | 0.70 × Burden |
+    | **Timing pozos** | {params_teoricos['timing_pozos_optimo']} ms | Th={params_teoricos['Th']} ms/m × S |
+    | **Timing filas** | {params_teoricos['timing_filas_optimo']} ms | 11.5 ms/m × B |
+    | **Factor de carga** | {params_teoricos['fc_optimo']} kg/m³ | Según dureza de roca |
+    | **Pasadura** | {params_teoricos['pasadura_optima']} m | 0.3 × Burden |
+    | **Explosivo recomendado** | {params_teoricos['explosivo_recomendado']} | Según UCS |
+    """)
+    
+    # Mostrar BxS como string
+    bxs_teorico = f"{params_teoricos['burden_optimo']}x{params_teoricos['espaciamiento_optimo']}"
+    st.success(f"**Malla teórica recomendada (BxS):** {bxs_teorico}")
+    
+    # ====== RECOMENDACIÓN MÍNIMO METROS ======
+    st.markdown("---")
+    st.subheader("🎯 Recomendación Mínimo Metros de Perforación")
+    
+    params_minmetros = calcular_malla_minimos_metros(
+        ucs=ucs_input,
+        densidad_explosivo=densidad_exp,
+        vod=vod_exp,
+        diametro_pulg=diametro_input,
+        p80_objetivo=p80_objetivo,
+        p100_objetivo=p100_objetivo,
+        factor_expansion=factor_expansion
+    )
+    
+    st.markdown(f"""
+    **Parámetros optimizados para minimizar metros de perforación:**
+    
+    Esta recomendación expande la malla teórica un **{params_minmetros['factor_expansion_usado']*100 - 100:.0f}%** 
+    para reducir la cantidad de pozos, compensando con mayor factor de carga y ajuste de timing.
+    
+    | Parámetro | Valor | Descripción |
+    |-----------|-------|-------------|
+    | **Burden** | {params_minmetros['burden_minmetros']} m | Expandido {params_minmetros['factor_expansion_usado']}x |
+    | **Espaciamiento** | {params_minmetros['espaciamiento_minmetros']} m | Expandido {params_minmetros['factor_expansion_usado']}x |
+    | **Área de malla** | {params_minmetros['area_malla_expandida']} m² | ↑ Mayor área = menos pozos |
+    | **Taco ajustado** | {params_minmetros['taco_ajustado']} m | 0.85 × Burden expandido |
+    | **Timing pozos** | {params_minmetros['timing_pozos_ajustado']} ms | Reducido 10% para compensar |
+    | **Timing filas** | {params_minmetros['timing_filas_ajustado']} ms | Reducido 5% para compensar |
+    | **Factor de carga** | {params_minmetros['fc_compensado']} kg/m³ | Aumentado para mantener energía |
+    | **Reducción de pozos** | {params_minmetros['reduccion_pozos_pct']}% | vs. malla teórica |
+    """)
+    
+    bxs_minmetros = f"{params_minmetros['burden_minmetros']}x{params_minmetros['espaciamiento_minmetros']}"
+    st.success(f"**Malla mínimo metros (BxS):** {bxs_minmetros}")
+    
+    st.warning(f"""
+    ⚠️ **Consideraciones importantes:**
+    - Esta malla expandida puede aumentar P80 y P100 respecto a la teórica
+    - Se recomienda monitorear fragmentación en las primeras tronaduras
+    - Objetivos establecidos: P80 ≤ {p80_objetivo}" y P100 ≤ {p100_objetivo}"
+    - Si no se cumplen objetivos, reducir factor de expansión
+    """)
+    
+    # ====== COMPARATIVA DE RECOMENDACIONES ======
+    st.markdown("---")
+    st.subheader("📊 Comparativa de Recomendaciones")
+    
+    # Crear DataFrame comparativo
+    df_comparativa = pd.DataFrame({
+        'Parámetro': [
+            'Burden (m)',
+            'Espaciamiento (m)',
+            'Área malla (m²)',
+            'Ratio S/B',
+            'Taco (m)',
+            'Timing pozos (ms)',
+            'Timing filas (ms)',
+            'FC (kg/m³)',
+            'Metros perf. por m² (*)',
+        ],
+        'Teórica ENAEX': [
+            params_teoricos['burden_optimo'],
+            params_teoricos['espaciamiento_optimo'],
+            params_teoricos['area_malla'],
+            params_teoricos['ratio_SB'],
+            params_teoricos['taco_optimo'],
+            params_teoricos['timing_pozos_optimo'],
+            params_teoricos['timing_filas_optimo'],
+            params_teoricos['fc_optimo'],
+            round(1 / params_teoricos['area_malla'], 3),
+        ],
+        'Mínimo Metros': [
+            params_minmetros['burden_minmetros'],
+            params_minmetros['espaciamiento_minmetros'],
+            params_minmetros['area_malla_expandida'],
+            params_minmetros['ratio_SB'],
+            params_minmetros['taco_ajustado'],
+            params_minmetros['timing_pozos_ajustado'],
+            params_minmetros['timing_filas_ajustado'],
+            params_minmetros['fc_compensado'],
+            round(1 / params_minmetros['area_malla_expandida'], 3),
+        ]
+    })
+    
+    st.dataframe(df_comparativa, use_container_width=True, hide_index=True)
+    
+    st.caption("(*) Metros de perforación por m² de área = 1 / Área malla. Menor es mejor para rendimiento de perforadoras.")
+    
+    # ====== GRÁFICO COMPARATIVO ======
+    st.markdown("---")
+    st.subheader("📈 Visualización Comparativa")
+    
+    fig_comp, axes_comp = plt.subplots(1, 3, figsize=(14, 4))
+    
+    # Gráfico 1: Burden vs Espaciamiento
+    ax1 = axes_comp[0]
+    ax1.scatter([params_teoricos['burden_optimo']], [params_teoricos['espaciamiento_optimo']], 
+               s=200, c='blue', marker='o', label='Teórica ENAEX', zorder=5)
+    ax1.scatter([params_minmetros['burden_minmetros']], [params_minmetros['espaciamiento_minmetros']], 
+               s=200, c='green', marker='^', label='Mínimo Metros', zorder=5)
+    ax1.set_xlabel('Burden (m)')
+    ax1.set_ylabel('Espaciamiento (m)')
+    ax1.set_title('Burden vs Espaciamiento')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    
+    # Gráfico 2: Área de malla
+    ax2 = axes_comp[1]
+    categorias = ['Teórica\nENAEX', 'Mínimo\nMetros']
+    areas = [params_teoricos['area_malla'], params_minmetros['area_malla_expandida']]
+    colors = ['blue', 'green']
+    bars = ax2.bar(categorias, areas, color=colors, alpha=0.7)
+    ax2.set_ylabel('Área de malla (m²)')
+    ax2.set_title('Área de Malla')
+    for bar, area in zip(bars, areas):
+        ax2.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5, 
+                f'{area:.1f}', ha='center', va='bottom', fontweight='bold')
+    
+    # Gráfico 3: Metros de perforación por m²
+    ax3 = axes_comp[2]
+    metros_teorica = round(1 / params_teoricos['area_malla'], 3)
+    metros_minmetros = round(1 / params_minmetros['area_malla_expandida'], 3)
+    metros_vals = [metros_teorica, metros_minmetros]
+    bars3 = ax3.bar(categorias, metros_vals, color=colors, alpha=0.7)
+    ax3.set_ylabel('Pozos por m²')
+    ax3.set_title('Densidad de Perforación')
+    for bar, m in zip(bars3, metros_vals):
+        ax3.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.001, 
+                f'{m:.3f}', ha='center', va='bottom', fontweight='bold')
+    
+    plt.tight_layout()
+    st.pyplot(fig_comp)
+    plt.close(fig_comp)
+    
+    # ====== ANÁLISIS DE VARIACIÓN P80 BASADO EN DATOS HISTÓRICOS ======
+    st.markdown("---")
+    st.subheader("📉 Análisis de Variación de Fragmentación (datos históricos)")
+    
+    if col_ucs is not None and col_ucs in df_filtrado.columns and 'P80TRON' in df_filtrado.columns:
+        # Analizar variación de P80 según área de malla
+        df_analisis = df_filtrado.copy()
+        if 'Burden' in df_analisis.columns and 'Espaciamiento' in df_analisis.columns:
+            df_analisis['Area_malla_calc'] = df_analisis['Burden'] * df_analisis['Espaciamiento']
+            
+            # Crear bins de área de malla
+            df_analisis['Area_bin'] = pd.cut(
+                df_analisis['Area_malla_calc'],
+                bins=[0, 40, 50, 60, 70, 80, 100, 200],
+                labels=['<40', '40-50', '50-60', '60-70', '70-80', '80-100', '>100']
+            )
+            
+            # Estadísticas por bin de área
+            stats_area = df_analisis.groupby('Area_bin').agg({
+                'P80TRON': ['mean', 'std', 'count'],
+                'P100TRON': ['mean', 'std']
+            }).round(2)
+            
+            if len(stats_area) > 0:
+                st.write("**Fragmentación promedio según área de malla (datos históricos):**")
+                
+                # Reformatear para mostrar
+                stats_display = pd.DataFrame({
+                    'Área malla (m²)': stats_area.index.astype(str),
+                    'P80 medio (pulg)': stats_area[('P80TRON', 'mean')].values,
+                    'P80 desv. std': stats_area[('P80TRON', 'std')].values,
+                    'P100 medio (pulg)': stats_area[('P100TRON', 'mean')].values,
+                    'n registros': stats_area[('P80TRON', 'count')].values.astype(int)
+                })
+                st.dataframe(stats_display, use_container_width=True, hide_index=True)
+                
+                # Indicar en qué rango cae cada recomendación
+                area_teorica = params_teoricos['area_malla']
+                area_minmetros = params_minmetros['area_malla_expandida']
+                
+                st.info(f"""
+                📊 **Ubicación de las recomendaciones:**
+                - Malla teórica ({area_teorica:.1f} m²): Esperar P80 y variación según datos históricos del rango correspondiente
+                - Malla mínimo metros ({area_minmetros:.1f} m²): Con área mayor, posible incremento en P80
+                """)
+    
+    # ====== RECOMENDACIÓN HISTÓRICA (si hay datos) ======
+    st.markdown("---")
+    st.subheader("📊 Mejor Configuración Histórica (datos observados)")
+    
+    # Filtrar datos cerca del UCS objetivo
+    ucs_tolerance = 20  # ±20 MPa
+    if col_ucs is not None and col_ucs in df_filtrado.columns:
+        df_historico = df_filtrado[
+            (df_filtrado[col_ucs] >= ucs_input - ucs_tolerance) &
+            (df_filtrado[col_ucs] <= ucs_input + ucs_tolerance)
+        ].copy()
+        
+        if len(df_historico) > 0:
+            # Encontrar mejor configuración histórica (menor P80)
+            if 'P80TRON' in df_historico.columns:
+                mejor_hist = df_historico.nsmallest(1, 'P80TRON')
+            elif 'P100TRON' in df_historico.columns:
+                mejor_hist = df_historico.nsmallest(1, 'P100TRON')
+            else:
+                mejor_hist = pd.DataFrame()
+            
+            if len(mejor_hist) > 0:
+                cols_mostrar = ['BxS', 'Burden', 'Espaciamiento', 'FC', 'Tipo_Explosivo',
+                               'tpozos_ms', 'tfilas_ms', 'taco_gravilla', 
+                               'P80TRON', 'P100TRON', 'UCS_MPA']
+                cols_mostrar = [c for c in cols_mostrar if c in mejor_hist.columns]
+                
+                st.write(f"Mejor configuración observada para UCS ≈ {ucs_input} MPa (±{ucs_tolerance}):")
+                st.dataframe(mejor_hist[cols_mostrar], use_container_width=True)
+                
+                # Extraer valores históricos para comparación
+                if 'Burden' in mejor_hist.columns and 'Espaciamiento' in mejor_hist.columns:
+                    b_hist = mejor_hist['Burden'].values[0]
+                    s_hist = mejor_hist['Espaciamiento'].values[0]
+                    if pd.notna(b_hist) and pd.notna(s_hist):
+                        st.info(f"**Malla histórica (BxS):** {b_hist}x{s_hist}")
+            else:
+                st.info(f"No hay suficientes datos históricos para UCS ≈ {ucs_input} MPa")
+        else:
+            st.info(f"No hay datos históricos disponibles para UCS ≈ {ucs_input} MPa (±{ucs_tolerance})")
+    else:
+        st.info("No se puede mostrar recomendación histórica sin datos de UCS")
 
 # ============================================
 # SECCIÓN 2: VISUALIZADOR DE HEATMAPS
