@@ -1977,6 +1977,192 @@ with st.expander("📚 Ver fórmulas y explicaciones", expanded=False):
     - Ash (1963), Konya (1995), Cunningham (1983)
     """)
 
+# ===== ANÁLISIS DE SENSIBILIDAD =====
+with st.expander("📈 Análisis de Sensibilidad (¿Qué variable influye más?)", expanded=False):
+    
+    st.markdown("""
+    Este análisis muestra **cuánto cambia el P80 estimado** al variar cada parámetro ±20%.
+    Las barras más largas indican las variables más influyentes para tu configuración actual.
+    """)
+    
+    # Parámetros base
+    B_base = params_multiobj['burden_optimo']
+    S_base = params_multiobj['espaciamiento_optimo']
+    FC_base = params_multiobj['fc_ajustado']
+    
+    # Función para calcular P80 con parámetros específicos
+    def calcular_p80_sensibilidad(burden, espaciamiento, fc, ucs_val, vod_val):
+        area = burden * espaciamiento
+        Area_ref = 20.0
+        FC_ref = 0.75
+        VOD_ref = 4500
+        K_base = 5.5
+        
+        f_malla = (area / Area_ref) ** 0.40
+        f_roca = (ucs_val / 100) ** 0.35
+        f_energia = (FC_ref / max(fc, 0.3)) ** 0.30
+        f_vod = (VOD_ref / max(vod_val, 3000)) ** 0.15
+        
+        P80 = K_base * f_malla * f_roca * f_energia * f_vod
+        return max(4.0, min(15.0, P80))
+    
+    # P80 base
+    p80_base = calcular_p80_sensibilidad(B_base, S_base, FC_base, ucs_input, vod_exp)
+    
+    # Calcular sensibilidad de cada variable
+    variacion = 0.20  # ±20%
+    
+    sensibilidades = {}
+    
+    # Sensibilidad a Burden
+    p80_burden_up = calcular_p80_sensibilidad(B_base * (1 + variacion), S_base, FC_base, ucs_input, vod_exp)
+    p80_burden_down = calcular_p80_sensibilidad(B_base * (1 - variacion), S_base, FC_base, ucs_input, vod_exp)
+    sensibilidades['Burden'] = {
+        'cambio_up': ((p80_burden_up - p80_base) / p80_base) * 100,
+        'cambio_down': ((p80_burden_down - p80_base) / p80_base) * 100,
+        'rango': abs(p80_burden_up - p80_burden_down)
+    }
+    
+    # Sensibilidad a Espaciamiento
+    p80_esp_up = calcular_p80_sensibilidad(B_base, S_base * (1 + variacion), FC_base, ucs_input, vod_exp)
+    p80_esp_down = calcular_p80_sensibilidad(B_base, S_base * (1 - variacion), FC_base, ucs_input, vod_exp)
+    sensibilidades['Espaciamiento'] = {
+        'cambio_up': ((p80_esp_up - p80_base) / p80_base) * 100,
+        'cambio_down': ((p80_esp_down - p80_base) / p80_base) * 100,
+        'rango': abs(p80_esp_up - p80_esp_down)
+    }
+    
+    # Sensibilidad a Factor de Carga
+    p80_fc_up = calcular_p80_sensibilidad(B_base, S_base, FC_base * (1 + variacion), ucs_input, vod_exp)
+    p80_fc_down = calcular_p80_sensibilidad(B_base, S_base, FC_base * (1 - variacion), ucs_input, vod_exp)
+    sensibilidades['Factor de Carga'] = {
+        'cambio_up': ((p80_fc_up - p80_base) / p80_base) * 100,
+        'cambio_down': ((p80_fc_down - p80_base) / p80_base) * 100,
+        'rango': abs(p80_fc_up - p80_fc_down)
+    }
+    
+    # Sensibilidad a UCS
+    p80_ucs_up = calcular_p80_sensibilidad(B_base, S_base, FC_base, ucs_input * (1 + variacion), vod_exp)
+    p80_ucs_down = calcular_p80_sensibilidad(B_base, S_base, FC_base, ucs_input * (1 - variacion), vod_exp)
+    sensibilidades['UCS (dureza)'] = {
+        'cambio_up': ((p80_ucs_up - p80_base) / p80_base) * 100,
+        'cambio_down': ((p80_ucs_down - p80_base) / p80_base) * 100,
+        'rango': abs(p80_ucs_up - p80_ucs_down)
+    }
+    
+    # Sensibilidad a VOD
+    p80_vod_up = calcular_p80_sensibilidad(B_base, S_base, FC_base, ucs_input, vod_exp * (1 + variacion))
+    p80_vod_down = calcular_p80_sensibilidad(B_base, S_base, FC_base, ucs_input, vod_exp * (1 - variacion))
+    sensibilidades['VOD (explosivo)'] = {
+        'cambio_up': ((p80_vod_up - p80_base) / p80_base) * 100,
+        'cambio_down': ((p80_vod_down - p80_base) / p80_base) * 100,
+        'rango': abs(p80_vod_up - p80_vod_down)
+    }
+    
+    # Sensibilidad a Área de Malla (B×S combinado)
+    factor_area = np.sqrt(1 + variacion)  # Para mantener proporcionalidad
+    p80_area_up = calcular_p80_sensibilidad(B_base * factor_area, S_base * factor_area, FC_base, ucs_input, vod_exp)
+    factor_area_down = np.sqrt(1 - variacion)
+    p80_area_down = calcular_p80_sensibilidad(B_base * factor_area_down, S_base * factor_area_down, FC_base, ucs_input, vod_exp)
+    sensibilidades['Área Malla (B×S)'] = {
+        'cambio_up': ((p80_area_up - p80_base) / p80_base) * 100,
+        'cambio_down': ((p80_area_down - p80_base) / p80_base) * 100,
+        'rango': abs(p80_area_up - p80_area_down)
+    }
+    
+    # Ordenar por rango (mayor influencia primero)
+    vars_ordenadas = sorted(sensibilidades.items(), key=lambda x: x[1]['rango'], reverse=True)
+    
+    # Crear gráfico de tornado
+    fig_sens, ax_sens = plt.subplots(figsize=(10, 5))
+    
+    variables = [v[0] for v in vars_ordenadas]
+    cambios_up = [v[1]['cambio_up'] for v in vars_ordenadas]
+    cambios_down = [v[1]['cambio_down'] for v in vars_ordenadas]
+    
+    y_pos = np.arange(len(variables))
+    
+    # Barras hacia la derecha (aumento del parámetro)
+    bars_up = ax_sens.barh(y_pos, cambios_up, height=0.4, label='+20% parámetro', color='#e74c3c', alpha=0.8)
+    # Barras hacia la izquierda (disminución del parámetro)
+    bars_down = ax_sens.barh(y_pos, cambios_down, height=0.4, label='-20% parámetro', color='#3498db', alpha=0.8)
+    
+    ax_sens.set_yticks(y_pos)
+    ax_sens.set_yticklabels(variables)
+    ax_sens.set_xlabel('Cambio en P80 (%)')
+    ax_sens.set_title(f'Sensibilidad del P80 a variaciones de ±20%\n(P80 base = {p80_base:.2f}")', fontweight='bold')
+    ax_sens.axvline(x=0, color='black', linewidth=0.5)
+    ax_sens.legend(loc='lower right')
+    ax_sens.grid(axis='x', alpha=0.3)
+    
+    # Añadir valores en las barras
+    for i, (up, down) in enumerate(zip(cambios_up, cambios_down)):
+        if abs(up) > 1:
+            ax_sens.text(up + 0.5 if up > 0 else up - 0.5, i, f'{up:+.1f}%', 
+                        va='center', ha='left' if up > 0 else 'right', fontsize=9)
+        if abs(down) > 1:
+            ax_sens.text(down + 0.5 if down > 0 else down - 0.5, i, f'{down:+.1f}%', 
+                        va='center', ha='left' if down > 0 else 'right', fontsize=9)
+    
+    plt.tight_layout()
+    st.pyplot(fig_sens)
+    plt.close(fig_sens)
+    
+    # Tabla de sensibilidad
+    st.markdown("### 📋 Tabla de Sensibilidad")
+    
+    df_sens = pd.DataFrame({
+        'Variable': [v[0] for v in vars_ordenadas],
+        'Si aumenta 20%': [f"P80 {v[1]['cambio_up']:+.1f}%" for v in vars_ordenadas],
+        'Si disminuye 20%': [f"P80 {v[1]['cambio_down']:+.1f}%" for v in vars_ordenadas],
+        'Rango de impacto': [f"{v[1]['rango']:.2f}\"" for v in vars_ordenadas],
+        'Influencia': ['🔴 Alta' if v[1]['rango'] > 0.5 else '🟡 Media' if v[1]['rango'] > 0.2 else '🟢 Baja' 
+                      for v in vars_ordenadas]
+    })
+    
+    st.dataframe(df_sens, use_container_width=True, hide_index=True)
+    
+    # Interpretación
+    var_mas_influyente = vars_ordenadas[0][0]
+    var_menos_influyente = vars_ordenadas[-1][0]
+    
+    st.markdown(f"""
+    ### 💡 Interpretación para UCS = {ucs_input} MPa
+    
+    **Variable más influyente:** `{var_mas_influyente}`
+    - Un cambio de ±20% en {var_mas_influyente} produce un cambio de hasta **{vars_ordenadas[0][1]['rango']:.2f}"** en P80
+    - Esta es la variable donde debes poner más atención en el control de calidad
+    
+    **Variable menos influyente:** `{var_menos_influyente}`
+    - Cambios en {var_menos_influyente} tienen menor impacto en la fragmentación
+    - Hay más flexibilidad para ajustar esta variable según otras restricciones
+    
+    ---
+    
+    **Recomendaciones operacionales:**
+    """)
+    
+    # Recomendaciones específicas
+    if sensibilidades['Área Malla (B×S)']['rango'] > sensibilidades['Factor de Carga']['rango']:
+        st.success("""
+        ✅ **La geometría de malla (B×S) es más crítica que el factor de carga.**
+        - Prioriza el control preciso del burden y espaciamiento
+        - Pequeñas desviaciones en perforación afectan significativamente la fragmentación
+        """)
+    else:
+        st.success("""
+        ✅ **El factor de carga es más crítico que la geometría.**
+        - Prioriza la dosificación precisa de explosivo
+        - Hay algo más de tolerancia en la precisión de perforación
+        """)
+    
+    if sensibilidades['UCS (dureza)']['rango'] > 0.3:
+        st.warning("""
+        ⚠️ **Alta sensibilidad a la dureza de roca.**
+        - Variaciones en UCS dentro del polígono afectarán la fragmentación
+        - Considera ajustar parámetros por zonas de diferente dureza
+        """)
+
 # ===== DATOS HISTÓRICOS (si existen) =====
 if col_ucs is not None and col_ucs in df_filtrado.columns and 'P80TRON' in df_filtrado.columns:
     with st.expander("📊 Comparar con datos históricos", expanded=False):
