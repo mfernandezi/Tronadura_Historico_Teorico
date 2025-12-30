@@ -305,57 +305,41 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
                                              altura_banco=15.0):
     """
     ================================================================================
-    FÓRMULA DE OPTIMIZACIÓN MULTI-OBJETIVO
+    FÓRMULA DE OPTIMIZACIÓN MULTI-OBJETIVO CON MODELO KUZ-RAM
     ================================================================================
     
-    Minimiza simultáneamente:
-    1. Metros de perforación por tonelada (menos pozos = mejor rendimiento perforadoras)
-    2. P80 esperado (fragmentación más fina = mejor molienda)
-    3. P100 esperado (menos sobretamaño = menos problemas en chancado)
+    MODELO DE FRAGMENTACIÓN KUZ-RAM:
+    =================================
     
-    FUNCIÓN OBJETIVO:
-    ==================
+    Tamaño medio X50 (Cunningham, 1983):
     
-    J(B, S, FC, tp, tf) = w₁·f_metros + w₂·f_P80 + w₃·f_P100
+        X50 = A × 0.073 × (B×S×H/Q)^0.8 × Q^0.167 × (S/B)^0.1   [cm]
     
     Donde:
-    - w₁, w₂, w₃ = pesos de cada objetivo (suman 1.0)
-    - f_metros = 1 / (B × S)  [metros perforados por m²]
-    - f_P80 = P80_estimado / P80_objetivo
-    - f_P100 = P100_estimado / P100_objetivo
+    - A = Factor de roca (según Lilly, basado en UCS):
+        A = 0.06 × (UCS/100) + 0.025 × RMD + 0.5 × JF + 0.03 × RDI
+        Simplificado: A ≈ 7 + (UCS - 50) × 0.05 para UCS en MPa
+    - B = Burden (m)
+    - S = Espaciamiento (m)
+    - H = Altura de banco (m)
+    - Q = Carga explosiva por pozo (kg)
     
-    MODELO DE FRAGMENTACIÓN (Kuz-Ram simplificado + ajuste empírico):
-    ================================================================
+    Relaciones P80 y P100:
+        P80 ≈ 1.68 × X50 × f_taco
+        P100 ≈ 3.50 × X50 × f_taco
     
-    P80_estimado = k₁ × (B × S)^α × UCS^β × (1/FC)^γ × (1/VOD)^δ × f_timing
+    Donde f_taco = factor de penalización por taco (1.0 a 1.3)
+    
+    FUNCIÓN OBJETIVO MULTI-OBJETIVO:
+    ==================================
+    
+    min f = w₁×(Metros/1500) + w₂×(P80/4.0) + w₃×(P100/12.0) + w₄×(σ_P80/0.5)
     
     Donde:
-    - k₁ = constante empírica = 0.015
-    - α = 0.45 (sensibilidad al área de malla)
-    - β = 0.25 (sensibilidad a la dureza de roca)
-    - γ = 0.35 (sensibilidad al factor de carga)
-    - δ = 0.15 (sensibilidad a la velocidad de detonación)
-    - f_timing = factor de corrección por timing
-    
-    P100_estimado = P80_estimado × k_ratio
-    
-    Donde k_ratio depende del ratio S/B y uniformidad de la tronadura:
-    - k_ratio = 1.8 para S/B ≈ 1.15 (óptimo)
-    - k_ratio = 2.0 para S/B < 1.0 o S/B > 1.5 (fuera de óptimo)
-    
-    FACTOR DE TIMING:
-    =================
-    
-    f_timing = 1 + 0.1×|tp/tp_opt - 1| + 0.15×|tf/tf_opt - 1|
-    
-    - Penaliza desviaciones del timing óptimo
-    - tp_opt = Th × S (timing pozos óptimo)
-    - tf_opt = 11.5 × B (timing filas óptimo)
-    
-    OPTIMIZACIÓN:
-    =============
-    
-    Se busca el factor de expansión óptimo (1.0 a 1.25) que minimiza J.
+    - Metros = metros perforados por área (H / (B×S))
+    - P80, P100 = fragmentación estimada (pulgadas)
+    - σ_P80 = desviación estándar estimada de P80
+    - w₁, w₂, w₃, w₄ = pesos de cada objetivo
     
     Parámetros:
     - ucs: Resistencia a compresión uniaxial (MPa)
@@ -382,113 +366,137 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
     tp_base = params_base['timing_pozos_optimo']
     tf_base = params_base['timing_filas_optimo']
     Th = params_base['Th']
+    taco_base = params_base['taco_optimo']
     
-    # Constantes del modelo de fragmentación (calibradas con datos típicos de minería)
-    # Basado en modelo Kuz-Ram y datos empíricos de fragmentación
-    # P80 típico en minería cielo abierto: 5-12 pulgadas
+    # Diámetro en metros
+    diametro_m = diametro_pulg * 0.0254
     
-    # Función para estimar P80 usando modelo Kuz-Ram modificado
-    def estimar_P80(B, S, FC, tp, tf, tp_opt, tf_opt):
+    # Factor de roca A (Lilly simplificado, basado en UCS)
+    # A típico: 7-13 para rocas de minería
+    A_roca = 7.0 + (ucs - 50) * 0.05
+    A_roca = max(6.0, min(14.0, A_roca))  # Limitar rango
+    
+    def calcular_X50_kuzram(B, S, H, Q, taco):
         """
-        Modelo de fragmentación empírico para P80.
+        Modelo Kuz-Ram para X50 (Cunningham modificado).
         
-        FÓRMULA CALIBRADA:
-        ==================
+        Fórmula original:
+        X50 = A × 0.073 × (B×S×H/Q)^0.8 × Q^0.167 × (S/B)^0.1   [cm]
         
-        P80 = K_base × f_malla × f_roca × f_energia × f_timing × f_vod
+        Calibración para minería cielo abierto:
+        - P80 típico: 5-10 pulgadas (12-25 cm)
+        - X50 típico: 8-15 cm
         
-        Donde:
-        - K_base = 5.5 (constante base para P80 ≈ 6" con malla óptima)
-        - f_malla = (B×S / Area_ref)^0.40  [sensibilidad a área de malla]
-        - f_roca = (UCS/100)^0.35  [sensibilidad a dureza]
-        - f_energia = (FC_ref / FC)^0.30  [sensibilidad a factor de carga]
-        - f_timing = 1 + pen_timing  [penalización por timing subóptimo]
-        - f_vod = (VOD_ref / VOD)^0.15  [sensibilidad a velocidad detonación]
-        
-        Calibración objetivo:
-        - Malla 4x5m, UCS=100, FC=0.75 → P80 ≈ 5.5"
-        - Malla 5x6m, UCS=100, FC=0.75 → P80 ≈ 6.5"
-        - Malla 6x7m, UCS=100, FC=0.75 → P80 ≈ 7.5"
+        Retorna X50 en cm
         """
-        area = B * S
-        Area_ref = 20.0  # Área de referencia (m²)
-        FC_ref = 0.75    # FC de referencia (kg/m³)
-        VOD_ref = 4500   # VOD de referencia (m/s)
+        if Q <= 0:
+            return 30.0  # Valor alto si no hay carga
         
-        # Constante base calibrada
-        K_base = 5.5
+        # Volumen por pozo (m³)
+        vol_pozo = B * S * H
         
-        # Factor de malla - área mayor = fragmentación más gruesa
-        f_malla = (area / Area_ref) ** 0.40
+        # Ratio volumen/carga (m³/kg) - típicamente 0.5-2.0
+        ratio_vol_carga = vol_pozo / Q
         
-        # Factor de roca - UCS mayor = fragmentación más gruesa
-        f_roca = (ucs / 100) ** 0.35
+        # Ratio S/B
+        ratio_SB = S / B
         
-        # Factor de energía - FC mayor = fragmentación más fina
-        f_energia = (FC_ref / max(FC, 0.3)) ** 0.30
+        # Fórmula Kuz-Ram calibrada
+        # Ajuste: multiplicador 1.5 para valores realistas de minería
+        X50 = A_roca * 0.073 * 1.5 * (ratio_vol_carga ** 0.8) * (Q ** 0.167) * (ratio_SB ** 0.1)
         
-        # Factor de timing - penaliza desviaciones del óptimo
-        if tp_opt > 0 and tf_opt > 0:
-            pen_pozos = 0.08 * abs(tp/tp_opt - 1)
-            pen_filas = 0.12 * abs(tf/tf_opt - 1)
-            f_timing = 1 + pen_pozos + pen_filas
+        # Factor de corrección por taco (penaliza tacos muy largos)
+        taco_optimo = 0.85 * B
+        if taco > taco_optimo * 1.2:
+            f_taco = 1.0 + 0.15 * (taco / taco_optimo - 1.0)
         else:
-            f_timing = 1.0
+            f_taco = 1.0
         
-        # Factor de VOD - mayor VOD = mejor fragmentación
-        f_vod = (VOD_ref / max(vod, 3000)) ** 0.15
+        X50 = X50 * f_taco
         
-        # Calcular P80
-        P80_est = K_base * f_malla * f_roca * f_energia * f_timing * f_vod
-        
-        # Limitar a rango realista (4-15 pulgadas para P80)
-        P80_est = max(4.0, min(15.0, P80_est))
-        
-        return P80_est
+        return max(8.0, min(40.0, X50))  # Limitar a rango realista (cm)
     
-    # Función para estimar P100
-    def estimar_P100(P80, S_B_ratio):
-        if 1.10 <= S_B_ratio <= 1.30:
-            k_ratio = 1.8  # Óptimo
-        elif 1.0 <= S_B_ratio < 1.10 or 1.30 < S_B_ratio <= 1.40:
-            k_ratio = 1.9  # Aceptable
+    def estimar_fragmentacion(B, S, FC, taco):
+        """
+        Estima P80 y P100 usando modelo Kuz-Ram.
+        
+        P80 ≈ 1.68 × X50 × f_taco
+        P100 ≈ 3.50 × X50 × f_taco
+        """
+        H = altura_banco
+        
+        # Calcular carga por pozo (kg)
+        # Q = FC × B × S × H
+        Q = FC * B * S * H
+        
+        # Calcular X50 (cm)
+        X50_cm = calcular_X50_kuzram(B, S, H, Q, taco)
+        
+        # Convertir a pulgadas (1 cm = 0.3937 pulg)
+        X50_pulg = X50_cm * 0.3937
+        
+        # Factor de taco para P80/P100
+        taco_optimo = 0.85 * B
+        if taco > taco_optimo:
+            f_taco = 1.0 + 0.1 * (taco / taco_optimo - 1.0)
         else:
-            k_ratio = 2.1  # Fuera de óptimo
+            f_taco = 1.0
         
-        return P80 * k_ratio
+        # P80 y P100 según relaciones Kuz-Ram
+        P80 = 1.68 * X50_pulg * f_taco
+        P100 = 3.50 * X50_pulg * f_taco
+        
+        # Limitar a rangos realistas
+        P80 = max(3.0, min(15.0, P80))
+        P100 = max(6.0, min(30.0, P100))
+        
+        return X50_pulg, P80, P100
     
-    # Función objetivo
     def funcion_objetivo(factor_exp):
+        """
+        Función objetivo multi-objetivo:
+        min f = w₁×(Metros/1500) + w₂×(P80/4.0) + w₃×(P100/12.0)
+        """
         B = B_base * factor_exp
         S = S_base * factor_exp
         area = B * S
+        taco = 0.85 * B
         
-        # Ajustar FC para compensar (aumentar energía)
+        # Ajustar FC para compensar expansión (mantener energía)
         FC = FC_base * (factor_exp ** 1.5)
         
         # Ajustar timing
-        tp = tp_base * 0.95  # Reducir ligeramente
-        tf = tf_base * 0.97
+        tp = Th * S * 0.95
+        tf = 11.5 * B * 0.97
         
-        # Timing óptimo para esta malla
-        tp_opt = Th * S
-        tf_opt = 11.5 * B
+        # Estimar fragmentación con Kuz-Ram
+        X50, P80_est, P100_est = estimar_fragmentacion(B, S, FC, taco)
         
-        # Estimar fragmentación
-        P80_est = estimar_P80(B, S, FC, tp, tf, tp_opt, tf_opt)
-        P100_est = estimar_P100(P80_est, S/B)
+        # Metros perforados por 1000 m² de área
+        metros_por_1000m2 = (altura_banco / area) * 1000
         
-        # Calcular componentes normalizados de la función objetivo
-        f_metros = 1 / area  # Metros por m² (menor es mejor)
-        f_metros_norm = f_metros / (1 / (B_base * S_base))  # Normalizado vs base
+        # Desviación estándar estimada (σ_P80 ≈ 0.2 × P80 para mallas regulares)
+        sigma_P80 = 0.2 * P80_est
         
-        f_P80_norm = P80_est / p80_objetivo
-        f_P100_norm = P100_est / p100_objetivo
+        # Función objetivo normalizada
+        # min f = w₁×(Metros/1500) + w₂×(P80/4.0) + w₃×(P100/12.0) + w₄×(σ_P80/0.5)
+        f_metros = metros_por_1000m2 / 1500.0
+        f_P80 = P80_est / 4.0
+        f_P100 = P100_est / 12.0
+        f_sigma = sigma_P80 / 0.5
         
-        # Función objetivo ponderada
-        J = peso_metros * f_metros_norm + peso_p80 * f_P80_norm + peso_p100 * f_P100_norm
+        # Peso para σ_P80 (implícito, 10% del total)
+        peso_sigma = 0.10
+        peso_ajustado_metros = peso_metros * (1 - peso_sigma)
+        peso_ajustado_p80 = peso_p80 * (1 - peso_sigma)
+        peso_ajustado_p100 = peso_p100 * (1 - peso_sigma)
         
-        return J, B, S, FC, tp, tf, P80_est, P100_est, area
+        J = (peso_ajustado_metros * f_metros + 
+             peso_ajustado_p80 * f_P80 + 
+             peso_ajustado_p100 * f_P100 + 
+             peso_sigma * f_sigma)
+        
+        return J, B, S, FC, tp, tf, X50, P80_est, P100_est, area, metros_por_1000m2
     
     # Buscar factor óptimo (búsqueda en grid)
     mejor_J = float('inf')
@@ -503,7 +511,7 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
         max_factor = 1.20
     
     for factor in np.arange(1.00, max_factor + 0.01, 0.01):
-        J, B, S, FC, tp, tf, P80_est, P100_est, area = funcion_objetivo(factor)
+        J, B, S, FC, tp, tf, X50, P80_est, P100_est, area, metros = funcion_objetivo(factor)
         
         # Verificar restricciones
         if P80_est <= p80_objetivo and P100_est <= p100_objetivo:
@@ -519,10 +527,13 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
                     'timing_pozos': round(tp, 2),
                     'timing_filas': round(tf, 2),
                     'taco_optimo': round(0.85 * B, 2),
+                    'X50_estimado': round(X50, 2),
                     'P80_estimado': round(P80_est, 2),
                     'P100_estimado': round(P100_est, 2),
+                    'metros_por_1000m2': round(metros, 2),
                     'reduccion_metros_pct': round((1 - (B_base * S_base) / area) * 100, 2),
                     'funcion_objetivo': round(J, 4),
+                    'A_roca': round(A_roca, 2),
                     'cumple_P80': P80_est <= p80_objetivo,
                     'cumple_P100': P100_est <= p100_objetivo,
                     'explosivo_recomendado': params_base['explosivo_recomendado']
@@ -530,11 +541,10 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
     
     # Si no se encontró solución factible, usar la base
     if mejor_resultado is None:
-        P80_base = estimar_P80(B_base, S_base, FC_base, tp_base, tf_base, tp_base, tf_base)
-        P100_base = estimar_P100(P80_base, S_base/B_base)
+        J, B, S, FC, tp, tf, X50, P80_base, P100_base, area, metros = funcion_objetivo(1.0)
         
         mejor_resultado = {
-            'factor_optimo': 1.0,
+            'factor_optimo': 1.00,
             'burden_optimo': B_base,
             'espaciamiento_optimo': S_base,
             'area_malla': round(B_base * S_base, 2),
@@ -543,10 +553,13 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
             'timing_pozos': tp_base,
             'timing_filas': tf_base,
             'taco_optimo': round(0.85 * B_base, 2),
+            'X50_estimado': round(X50, 2),
             'P80_estimado': round(P80_base, 2),
             'P100_estimado': round(P100_base, 2),
-            'reduccion_metros_pct': 0.0,
-            'funcion_objetivo': 1.0,
+            'metros_por_1000m2': round(metros, 2),
+            'reduccion_metros_pct': 0.00,
+            'funcion_objetivo': round(J, 4),
+            'A_roca': round(A_roca, 2),
             'cumple_P80': P80_base <= p80_objetivo,
             'cumple_P100': P100_base <= p100_objetivo,
             'explosivo_recomendado': params_base['explosivo_recomendado'],
@@ -2220,52 +2233,117 @@ Para **UCS = {ucs_input} MPa** se recomienda: **`{params_teoricos['explosivo_rec
 # ===== FÓRMULAS (COLAPSADAS) =====
 with st.expander("📚 Ver fórmulas y explicaciones", expanded=False):
     st.markdown(f"""
-    ### Fórmulas utilizadas para UCS = {ucs_input} MPa
+    ## Fórmulas utilizadas para UCS = {ucs_input} MPa
     
-    **1. Burden (Ash modificada):**
+    ---
+    
+    ### 1. PARÁMETROS DE MALLA (ENAEX/Ash)
+    
+    **Burden (Ash modificada):**
     ```
     B = (Kb × De × (ρe/ρr)^0.33 × (VOD/4000)^0.5) / 39.37
     B = ({params_teoricos['Kb']} × {diametro_input} × ({densidad_exp}/2.65)^0.33 × ({vod_exp}/4000)^0.5) / 39.37
     B = {params_teoricos['burden_optimo']} m
     ```
     
-    **2. Espaciamiento:**
+    **Espaciamiento:**
     ```
     S = Ks × B = {params_teoricos['ratio_SB']} × {params_teoricos['burden_optimo']} = {params_teoricos['espaciamiento_optimo']} m
     ```
     
-    **3. Timing (Konya):**
+    **Timing (Konya):**
     ```
     Timing pozos = Th × S = {params_teoricos['Th']} × {params_teoricos['espaciamiento_optimo']} = {params_teoricos['timing_pozos_optimo']} ms
     Timing filas = 11.5 × B = 11.5 × {params_teoricos['burden_optimo']} = {params_teoricos['timing_filas_optimo']} ms
     ```
     
-    **4. Taco:**
+    **Taco:**
     ```
     Taco = 0.85 × B = 0.85 × {params_teoricos['burden_optimo']} = {params_teoricos['taco_optimo']} m
     ```
     
-    **5. Modelo de fragmentación (P80):**
+    ---
+    
+    ### 2. MODELO DE FRAGMENTACIÓN KUZ-RAM (Cunningham, 1983)
+    
+    **Tamaño medio X50:**
     ```
-    P80 = 5.5 × (Área/20)^0.40 × (UCS/100)^0.35 × (0.75/FC)^0.30 × f_timing × f_vod
+    X50 = A × 0.073 × (B×S×H/Q)^0.8 × Q^0.167 × (S/B)^0.1   [cm]
     ```
+    
+    Donde:
+    - **A** = Factor de roca (Lilly): A = 7.0 + (UCS - 50) × 0.05 = **{round(7.0 + (ucs_input - 50) * 0.05, 2)}**
+    - **B** = Burden (m)
+    - **S** = Espaciamiento (m)
+    - **H** = Altura de banco = {altura_banco_est} m
+    - **Q** = Carga explosiva por pozo = FC × B × S × H (kg)
+    
+    **Relaciones con P80 y P100:**
+    ```
+    P80 ≈ 1.68 × X50 × f_taco   [pulgadas]
+    P100 ≈ 3.50 × X50 × f_taco  [pulgadas]
+    ```
+    
+    Donde f_taco = factor de penalización por taco (1.0 si taco óptimo, hasta 1.3 si excesivo)
     
     ---
     
-    ### Constantes según dureza de roca
+    ### 3. FUNCIÓN OBJETIVO MULTI-OBJETIVO
     
-    | UCS (MPa) | Tipo | Kb | Ks (S/B) | Th (ms/m) | FC óptimo |
-    |-----------|------|-----|----------|-----------|-----------|
-    | < 50 | Blanda | 35 | 1.40 | 6.5 | 0.35 |
-    | 50-100 | Media | 30 | 1.30 | 5.5 | 0.50 |
-    | 100-150 | Dura | 28 | 1.20 | 4.5 | 0.75 |
-    | > 150 | Muy dura | 25 | 1.15 | 3.5 | 1.00 |
+    **Minimización simultánea de metros, P80, P100 y variabilidad:**
+    ```
+    min f = w₁×(Metros/1500) + w₂×(P80/4.0) + w₃×(P100/12.0) + w₄×(σ_P80/0.5)
+    ```
+    
+    Donde:
+    - **Metros** = metros perforados por 1000 m² = H / (B×S) × 1000
+    - **P80, P100** = fragmentación estimada (pulgadas)
+    - **σ_P80** = desviación estándar estimada ≈ 0.2 × P80
+    - **w₁** = {peso_metros:.2f} (reducir metros)
+    - **w₂** = {peso_p80:.2f} (reducir P80)
+    - **w₃** = {peso_p100:.2f} (reducir P100)
+    - **w₄** = 0.10 (reducir variabilidad)
+    
+    **Cómo minimiza metros:**
+    - Al aumentar B×S (área de malla), se reduce metros perforados
+    - Se busca el factor de expansión óptimo (1.0 a 1.2) que minimiza f
+    - Se compensa con mayor FC para mantener fragmentación aceptable
+    
+    ---
+    
+    ### 4. CONSTANTES SEGÚN DUREZA DE ROCA
+    
+    | UCS (MPa) | Tipo | Kb | Ks (S/B) | Th (ms/m) | FC óptimo | Factor max |
+    |-----------|------|-----|----------|-----------|-----------|------------|
+    | < 50 | Blanda | 35 | 1.40 | 6.5 | 0.35 | 1.20 |
+    | 50-100 | Media | 30 | 1.30 | 5.5 | 0.50 | 1.15 |
+    | 100-150 | Dura | 28 | 1.20 | 4.5 | 0.75 | 1.15 |
+    | > 150 | Muy dura | 25 | 1.15 | 3.5 | 1.00 | 1.10 |
+    
+    ---
+    
+    ### 5. TACO INTERMEDIO
+    
+    **Criterio de uso:**
+    ```
+    Columna explosiva = H_banco - Taco_superior - Pasadura
+    Se usa taco intermedio si: Columna > 10 m
+    ```
+    
+    **Cálculo:**
+    ```
+    Longitud taco intermedio = Columna / 3
+    Posición = Pasadura + Columna × 0.33
+    ```
     
     ---
     
     ### Referencias
     - Manual de Tronadura ENAEX
-    - Ash (1963), Konya (1995), Cunningham (1983)
+    - Ash, R.L. (1963) - The mechanics of rock breakage
+    - Konya, C.J. (1995) - Blast Design
+    - Cunningham, C.V.B. (1983) - The Kuz-Ram model for prediction of fragmentation
+    - Lilly, P.A. (1986) - An empirical method of assessing rock mass blastability
     """)
 
 # ===== ANÁLISIS DE SENSIBILIDAD =====
