@@ -213,8 +213,8 @@ def calcular_parametros_teoricos_enaex(ucs, densidad_explosivo=1.2, vod=4500, di
         'ratio_SB': round(Ks, 2),
         'taco_optimo': round(taco_optimo, 2),
         'taco_minimo': round(taco_minimo, 2),
-        'timing_pozos_optimo': round(timing_pozos_optimo, 1),
-        'timing_filas_optimo': round(timing_filas_optimo, 1),
+        'timing_pozos_optimo': round(timing_pozos_optimo, 2),
+        'timing_filas_optimo': round(timing_filas_optimo, 2),
         'fc_optimo': round(fc_optimo, 2),
         'pasadura_optima': round(pasadura_optima, 2),
         'explosivo_recomendado': explosivo_recomendado,
@@ -287,11 +287,11 @@ def calcular_malla_minimos_metros(ucs, densidad_explosivo=1.2, vod=4500, diametr
         'area_malla_expandida': round(area_malla_expandida, 2),
         'ratio_SB': params_teoricos['ratio_SB'],
         'taco_ajustado': round(taco_ajustado, 2),
-        'timing_pozos_ajustado': round(timing_pozos_ajustado, 1),
-        'timing_filas_ajustado': round(timing_filas_ajustado, 1),
+        'timing_pozos_ajustado': round(timing_pozos_ajustado, 2),
+        'timing_filas_ajustado': round(timing_filas_ajustado, 2),
         'fc_compensado': round(fc_compensado, 2),
         'factor_expansion_usado': round(factor_expansion, 2),
-        'reduccion_pozos_pct': round(reduccion_pozos * 100, 1),
+        'reduccion_pozos_pct': round(reduccion_pozos * 100, 2),
         'explosivo_recomendado': params_teoricos['explosivo_recomendado'],
         'p80_objetivo': p80_objetivo,
         'p100_objetivo': p100_objetivo,
@@ -516,12 +516,12 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
                     'area_malla': round(area, 2),
                     'ratio_SB': round(S/B, 2),
                     'fc_ajustado': round(FC, 2),
-                    'timing_pozos': round(tp, 1),
-                    'timing_filas': round(tf, 1),
+                    'timing_pozos': round(tp, 2),
+                    'timing_filas': round(tf, 2),
                     'taco_optimo': round(0.85 * B, 2),
                     'P80_estimado': round(P80_est, 2),
                     'P100_estimado': round(P100_est, 2),
-                    'reduccion_metros_pct': round((1 - (B_base * S_base) / area) * 100, 1),
+                    'reduccion_metros_pct': round((1 - (B_base * S_base) / area) * 100, 2),
                     'funcion_objetivo': round(J, 4),
                     'cumple_P80': P80_est <= p80_objetivo,
                     'cumple_P100': P100_est <= p100_objetivo,
@@ -1525,15 +1525,16 @@ def generar_heatmap_una_variable(
         vmin=vmin,
         vmax=vmax,
         cbar_kws={"shrink": 0.8},
-        ax=ax
+        ax=ax,
+        annot_kws={"size": 9}  # Tamaño de texto en anotaciones
     )
 
-    ax.set_title(f"{metrica} medio — UCS vs {var_y} — {nombre_subset}", pad=20)
-    ax.set_xlabel("UCS (bins)")
-    ax.set_ylabel(var_y)
+    ax.set_title(f"{metrica} medio — UCS vs {var_y} — {nombre_subset}", fontsize=12, pad=20)
+    ax.set_xlabel("UCS (bins)", fontsize=11)
+    ax.set_ylabel(var_y, fontsize=11)
 
-    ax.tick_params(axis="x", labelrotation=0)
-    ax.tick_params(axis="y", labelrotation=0)
+    ax.tick_params(axis="x", labelrotation=0, labelsize=10)
+    ax.tick_params(axis="y", labelrotation=0, labelsize=10)
 
     fig.subplots_adjust(left=0.25, right=0.95, top=0.9, bottom=0.15)
 
@@ -1715,29 +1716,51 @@ else:
 # SECCIÓN 1.1: RECOMENDACIONES DE MALLA (SIMPLIFICADA)
 # ============================================
 
-# Estilo CSS para cambiar colores a celeste
+# Estilo CSS para cambiar colores a celeste claro
 st.markdown("""
 <style>
-    /* Slider */
+    /* Slider - track y thumb en celeste claro */
     .stSlider > div > div > div > div {
-        background-color: #81d4fa !important;
+        background-color: #e1f5fe !important;
     }
     .stSlider > div > div > div > div > div {
-        background-color: #0288d1 !important;
+        background-color: #4fc3f7 !important;
     }
-    /* Botones */
+    /* Slider - valor seleccionado */
+    .stSlider [data-baseweb="slider"] div[role="slider"] {
+        background-color: #29b6f6 !important;
+        border-color: #29b6f6 !important;
+    }
+    /* Botones en celeste claro */
     .stButton > button {
-        background-color: #b3e5fc !important;
-        color: #01579b !important;
-        border: 1px solid #4fc3f7 !important;
+        background-color: #e1f5fe !important;
+        color: #0277bd !important;
+        border: 2px solid #81d4fa !important;
+        border-radius: 8px !important;
     }
     .stButton > button:hover {
-        background-color: #81d4fa !important;
-        border: 1px solid #0288d1 !important;
+        background-color: #b3e5fc !important;
+        border: 2px solid #4fc3f7 !important;
     }
-    /* Selectbox */
+    /* Selectbox y multiselect */
     .stSelectbox > div > div {
-        border-color: #4fc3f7 !important;
+        border-color: #81d4fa !important;
+    }
+    .stMultiSelect > div > div {
+        border-color: #81d4fa !important;
+    }
+    /* Number input */
+    .stNumberInput > div > div > input {
+        border-color: #81d4fa !important;
+    }
+    /* Expander headers en celeste */
+    .streamlit-expanderHeader {
+        background-color: #e1f5fe !important;
+        border-radius: 8px !important;
+    }
+    /* Range slider */
+    div[data-testid="stSlider"] > div > div > div {
+        background-color: #e1f5fe !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -2075,29 +2098,59 @@ with col_card3:
 
 # ===== INFORMACIÓN SOBRE TACO INTERMEDIO =====
 st.markdown("---")
-st.markdown("### 📏 Recomendación de Taco Intermedio")
+st.markdown("### 📏 Análisis de Taco Intermedio")
+
+# Mostrar cálculos detallados
+col_ti_info1, col_ti_info2 = st.columns(2)
+
+with col_ti_info1:
+    st.markdown(f"""
+    **📐 Parámetros de Cálculo:**
+    
+    | Parámetro | Valor |
+    |-----------|-------|
+    | Altura de banco estimada | {altura_banco_est:.2f} m |
+    | Taco superior | {params_teoricos['taco_optimo']:.2f} m |
+    | Pasadura (subdrilling) | {params_teoricos['pasadura_optima']:.2f} m |
+    | **Columna explosiva** | **{longitud_carga:.2f} m** |
+    """)
+
+with col_ti_info2:
+    st.markdown(f"""
+    **📋 Fórmulas Utilizadas:**
+    
+    ```
+    Columna = H_banco - Taco - Pasadura
+    Columna = {altura_banco_est:.2f} - {params_teoricos['taco_optimo']:.2f} - {params_teoricos['pasadura_optima']:.2f}
+    Columna = {longitud_carga:.2f} m
+    ```
+    
+    **Criterio:** Se usa taco intermedio si Columna > 10 m
+    """)
 
 if usar_taco_intermedio:
     st.info(f"""
-    **Se recomienda usar taco intermedio** para esta configuración.
+    ✅ **Se recomienda usar taco intermedio** (columna > 10 m)
     
-    📐 **Teórico (ENAEX):**
-    - Longitud de columna explosiva estimada: **{longitud_carga:.1f} m** (> 10m)
-    - Taco intermedio recomendado: **{taco_intermedio_teorico} m**
-    - Posición desde fondo del pozo: **{posicion_taco_int} m**
-    - Material: Gravilla 3/4" o detritus de perforación
+    **Cálculo del taco intermedio:**
+    ```
+    Longitud taco intermedio = Columna / 3 = {longitud_carga:.2f} / 3 = {taco_intermedio_teorico:.2f} m
+    Posición = Pasadura + Columna × 0.33 = {params_teoricos['pasadura_optima']:.2f} + {longitud_carga:.2f} × 0.33 = {posicion_taco_int:.2f} m
+    ```
     
-    💡 **Beneficios del taco intermedio:**
-    - Mejor distribución de energía en la columna
-    - Reduce la presión en el taco superior
-    - Mejora la fragmentación en la parte superior del banco
+    | Parámetro | Valor |
+    |-----------|-------|
+    | Longitud del taco | {taco_intermedio_teorico:.2f} m |
+    | Posición desde fondo | {posicion_taco_int:.2f} m |
+    | Material recomendado | Gravilla 3/4" o detritus |
+    
+    💡 **Beneficios:** Mejor distribución de energía, reduce presión en taco superior, mejora fragmentación superior.
     """)
 else:
     st.success(f"""
-    **No se requiere taco intermedio** para esta configuración.
+    ℹ️ **No se requiere taco intermedio** (columna < 10 m)
     
-    - Longitud de columna explosiva estimada: **{longitud_carga:.1f} m** (< 10m)
-    - Con columnas cortas, un solo taco superior es suficiente
+    Con columnas de {longitud_carga:.2f} m, un solo taco superior de {params_teoricos['taco_optimo']:.2f} m es suficiente.
     """)
 
 # Mostrar histórico de tacos intermedios si existen
@@ -2108,11 +2161,11 @@ if 'taco_intermedio' in df_filtrado.columns:
         taco_int_stats = df_con_taco_int['taco_intermedio'].describe()
         col_ti1, col_ti2, col_ti3 = st.columns(3)
         with col_ti1:
-            st.metric("Mínimo usado", f"{taco_int_stats['min']:.1f} m")
+            st.metric("Mínimo usado", f"{taco_int_stats['min']:.2f} m")
         with col_ti2:
-            st.metric("Promedio", f"{taco_int_stats['mean']:.1f} m")
+            st.metric("Promedio", f"{taco_int_stats['mean']:.2f} m")
         with col_ti3:
-            st.metric("Máximo usado", f"{taco_int_stats['max']:.1f} m")
+            st.metric("Máximo usado", f"{taco_int_stats['max']:.2f} m")
 
 # ===== EXPLOSIVO RECOMENDADO =====
 st.markdown("---")
@@ -2277,8 +2330,8 @@ with st.expander("📈 Análisis de Sensibilidad (¿Qué variable influye más?)
     # Ordenar por rango (mayor influencia primero)
     vars_ordenadas = sorted(sensibilidades.items(), key=lambda x: x[1]['rango'], reverse=True)
     
-    # Crear gráfico de tornado
-    fig_sens, ax_sens = plt.subplots(figsize=(10, 5))
+    # Crear gráfico de tornado con mejor dimensionamiento
+    fig_sens, ax_sens = plt.subplots(figsize=(10, 6))
     
     variables = [v[0] for v in vars_ordenadas]
     cambios_up = [v[1]['cambio_up'] for v in vars_ordenadas]
@@ -2287,29 +2340,32 @@ with st.expander("📈 Análisis de Sensibilidad (¿Qué variable influye más?)
     y_pos = np.arange(len(variables))
     
     # Barras hacia la derecha (aumento del parámetro)
-    bars_up = ax_sens.barh(y_pos, cambios_up, height=0.4, label='+20% parámetro', color='#1565c0', alpha=0.8)
+    bars_up = ax_sens.barh(y_pos, cambios_up, height=0.35, label='+20% parámetro', color='#0288d1', alpha=0.85)
     # Barras hacia la izquierda (disminución del parámetro)
-    bars_down = ax_sens.barh(y_pos, cambios_down, height=0.4, label='-20% parámetro', color='#90caf9', alpha=0.8)
+    bars_down = ax_sens.barh(y_pos, cambios_down, height=0.35, label='-20% parámetro', color='#81d4fa', alpha=0.85)
     
     ax_sens.set_yticks(y_pos)
-    ax_sens.set_yticklabels(variables)
-    ax_sens.set_xlabel('Cambio en P80 (%)')
-    ax_sens.set_title(f'Sensibilidad del P80 a variaciones de ±20%\n(P80 base = {p80_base:.2f}")', fontweight='bold')
-    ax_sens.axvline(x=0, color='black', linewidth=0.5)
-    ax_sens.legend(loc='lower right')
+    ax_sens.set_yticklabels(variables, fontsize=11)
+    ax_sens.set_xlabel('Cambio en P80 (%)', fontsize=11)
+    ax_sens.set_title(f'Sensibilidad del P80 a variaciones de ±20%\n(P80 base = {p80_base:.2f}")', fontsize=12, fontweight='bold')
+    ax_sens.axvline(x=0, color='black', linewidth=0.8)
+    ax_sens.legend(loc='lower right', fontsize=10)
     ax_sens.grid(axis='x', alpha=0.3)
+    ax_sens.tick_params(axis='x', labelsize=10)
     
-    # Añadir valores en las barras
+    # Añadir valores en las barras con mejor posicionamiento
     for i, (up, down) in enumerate(zip(cambios_up, cambios_down)):
-        if abs(up) > 1:
-            ax_sens.text(up + 0.5 if up > 0 else up - 0.5, i, f'{up:+.1f}%', 
-                        va='center', ha='left' if up > 0 else 'right', fontsize=9)
-        if abs(down) > 1:
-            ax_sens.text(down + 0.5 if down > 0 else down - 0.5, i, f'{down:+.1f}%', 
-                        va='center', ha='left' if down > 0 else 'right', fontsize=9)
+        if abs(up) > 0.5:
+            offset = 0.3 if up > 0 else -0.3
+            ax_sens.text(up + offset, i, f'{up:+.2f}%', 
+                        va='center', ha='left' if up > 0 else 'right', fontsize=10, fontweight='bold')
+        if abs(down) > 0.5:
+            offset = 0.3 if down > 0 else -0.3
+            ax_sens.text(down + offset, i, f'{down:+.2f}%', 
+                        va='center', ha='left' if down > 0 else 'right', fontsize=10, fontweight='bold')
     
     plt.tight_layout()
-    st.pyplot(fig_sens)
+    st.pyplot(fig_sens, use_container_width=True)
     plt.close(fig_sens)
     
     # Tabla de sensibilidad
@@ -2317,8 +2373,8 @@ with st.expander("📈 Análisis de Sensibilidad (¿Qué variable influye más?)
     
     df_sens = pd.DataFrame({
         'Variable': [v[0] for v in vars_ordenadas],
-        'Si aumenta 20%': [f"P80 {v[1]['cambio_up']:+.1f}%" for v in vars_ordenadas],
-        'Si disminuye 20%': [f"P80 {v[1]['cambio_down']:+.1f}%" for v in vars_ordenadas],
+        'Si aumenta 20%': [f"P80 {v[1]['cambio_up']:+.2f}%" for v in vars_ordenadas],
+        'Si disminuye 20%': [f"P80 {v[1]['cambio_down']:+.2f}%" for v in vars_ordenadas],
         'Rango de impacto': [f"{v[1]['rango']:.2f}\"" for v in vars_ordenadas],
         'Influencia': ['🔴 Alta' if v[1]['rango'] > 0.5 else '🟡 Media' if v[1]['rango'] > 0.2 else '🟢 Baja' 
                       for v in vars_ordenadas]
@@ -2639,8 +2695,17 @@ else:
         color="Producto",
         hover_name="Producto",
         hover_data={x: True, y: True, size: True, "scaled_size": False},
-        title=f"{y} vs {x} (Tamaño por {size}, escalado)",
+        title=f"{y} vs {x} (Tamaño por {size})",
         size_max=40
+    )
+    
+    # Mejorar layout del gráfico
+    fig.update_layout(
+        title=dict(font=dict(size=14)),
+        xaxis=dict(title=dict(font=dict(size=12)), tickfont=dict(size=10)),
+        yaxis=dict(title=dict(font=dict(size=12)), tickfont=dict(size=10)),
+        legend=dict(font=dict(size=10)),
+        margin=dict(l=60, r=40, t=50, b=60)
     )
 
     st.plotly_chart(fig, use_container_width=True)
@@ -2877,11 +2942,17 @@ else:
         x=x1,
         y=y1,
         size="scaled_size",
-        #color="Producto",
-        #hover_name="Producto",
         hover_data={x1: True, y1: True, size1: True, "scaled_size": False},
-        title=f"{y1} vs {x1} (Tamaño por {size1}, escalado)",
+        title=f"{y1} vs {x1} (Tamaño por {size1})",
         size_max=40
+    )
+    
+    # Mejorar layout del gráfico
+    fig.update_layout(
+        title=dict(font=dict(size=14)),
+        xaxis=dict(title=dict(font=dict(size=12)), tickfont=dict(size=10)),
+        yaxis=dict(title=dict(font=dict(size=12)), tickfont=dict(size=10)),
+        margin=dict(l=60, r=40, t=50, b=60)
     )
 
     st.plotly_chart(fig, use_container_width=True)
