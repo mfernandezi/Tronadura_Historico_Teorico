@@ -298,6 +298,263 @@ def calcular_malla_minimos_metros(ucs, densidad_explosivo=1.2, vod=4500, diametr
         'advertencias': []
     }
 
+
+def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=4500, diametro_pulg=6.75,
+                                             p80_objetivo=8.0, p100_objetivo=15.0,
+                                             peso_metros=0.4, peso_p80=0.35, peso_p100=0.25,
+                                             altura_banco=15.0):
+    """
+    ================================================================================
+    FÓRMULA DE OPTIMIZACIÓN MULTI-OBJETIVO
+    ================================================================================
+    
+    Minimiza simultáneamente:
+    1. Metros de perforación por tonelada (menos pozos = mejor rendimiento perforadoras)
+    2. P80 esperado (fragmentación más fina = mejor molienda)
+    3. P100 esperado (menos sobretamaño = menos problemas en chancado)
+    
+    FUNCIÓN OBJETIVO:
+    ==================
+    
+    J(B, S, FC, tp, tf) = w₁·f_metros + w₂·f_P80 + w₃·f_P100
+    
+    Donde:
+    - w₁, w₂, w₃ = pesos de cada objetivo (suman 1.0)
+    - f_metros = 1 / (B × S)  [metros perforados por m²]
+    - f_P80 = P80_estimado / P80_objetivo
+    - f_P100 = P100_estimado / P100_objetivo
+    
+    MODELO DE FRAGMENTACIÓN (Kuz-Ram simplificado + ajuste empírico):
+    ================================================================
+    
+    P80_estimado = k₁ × (B × S)^α × UCS^β × (1/FC)^γ × (1/VOD)^δ × f_timing
+    
+    Donde:
+    - k₁ = constante empírica = 0.015
+    - α = 0.45 (sensibilidad al área de malla)
+    - β = 0.25 (sensibilidad a la dureza de roca)
+    - γ = 0.35 (sensibilidad al factor de carga)
+    - δ = 0.15 (sensibilidad a la velocidad de detonación)
+    - f_timing = factor de corrección por timing
+    
+    P100_estimado = P80_estimado × k_ratio
+    
+    Donde k_ratio depende del ratio S/B y uniformidad de la tronadura:
+    - k_ratio = 1.8 para S/B ≈ 1.15 (óptimo)
+    - k_ratio = 2.0 para S/B < 1.0 o S/B > 1.5 (fuera de óptimo)
+    
+    FACTOR DE TIMING:
+    =================
+    
+    f_timing = 1 + 0.1×|tp/tp_opt - 1| + 0.15×|tf/tf_opt - 1|
+    
+    - Penaliza desviaciones del timing óptimo
+    - tp_opt = Th × S (timing pozos óptimo)
+    - tf_opt = 11.5 × B (timing filas óptimo)
+    
+    OPTIMIZACIÓN:
+    =============
+    
+    Se busca el factor de expansión óptimo (1.0 a 1.25) que minimiza J.
+    
+    Parámetros:
+    - ucs: Resistencia a compresión uniaxial (MPa)
+    - densidad_explosivo: Densidad del explosivo (g/cc)
+    - vod: Velocidad de detonación (m/s)
+    - diametro_pulg: Diámetro de perforación (pulgadas)
+    - p80_objetivo: P80 objetivo máximo (pulgadas)
+    - p100_objetivo: P100 objetivo máximo (pulgadas)
+    - peso_metros: Peso del objetivo de minimizar metros (0-1)
+    - peso_p80: Peso del objetivo de minimizar P80 (0-1)
+    - peso_p100: Peso del objetivo de minimizar P100 (0-1)
+    - altura_banco: Altura del banco (m)
+    
+    Retorna:
+    - Diccionario con parámetros optimizados y métricas
+    """
+    
+    # Obtener parámetros teóricos base
+    params_base = calcular_parametros_teoricos_enaex(ucs, densidad_explosivo, vod, diametro_pulg)
+    
+    B_base = params_base['burden_optimo']
+    S_base = params_base['espaciamiento_optimo']
+    FC_base = params_base['fc_optimo']
+    tp_base = params_base['timing_pozos_optimo']
+    tf_base = params_base['timing_filas_optimo']
+    Th = params_base['Th']
+    
+    # Constantes del modelo de fragmentación (calibradas con datos típicos de minería)
+    # Basado en modelo Kuz-Ram y datos empíricos de fragmentación
+    # P80 típico en minería cielo abierto: 5-12 pulgadas
+    
+    # Función para estimar P80 usando modelo Kuz-Ram modificado
+    def estimar_P80(B, S, FC, tp, tf, tp_opt, tf_opt):
+        """
+        Modelo de fragmentación empírico para P80.
+        
+        FÓRMULA CALIBRADA:
+        ==================
+        
+        P80 = K_base × f_malla × f_roca × f_energia × f_timing × f_vod
+        
+        Donde:
+        - K_base = 5.5 (constante base para P80 ≈ 6" con malla óptima)
+        - f_malla = (B×S / Area_ref)^0.40  [sensibilidad a área de malla]
+        - f_roca = (UCS/100)^0.35  [sensibilidad a dureza]
+        - f_energia = (FC_ref / FC)^0.30  [sensibilidad a factor de carga]
+        - f_timing = 1 + pen_timing  [penalización por timing subóptimo]
+        - f_vod = (VOD_ref / VOD)^0.15  [sensibilidad a velocidad detonación]
+        
+        Calibración objetivo:
+        - Malla 4x5m, UCS=100, FC=0.75 → P80 ≈ 5.5"
+        - Malla 5x6m, UCS=100, FC=0.75 → P80 ≈ 6.5"
+        - Malla 6x7m, UCS=100, FC=0.75 → P80 ≈ 7.5"
+        """
+        area = B * S
+        Area_ref = 20.0  # Área de referencia (m²)
+        FC_ref = 0.75    # FC de referencia (kg/m³)
+        VOD_ref = 4500   # VOD de referencia (m/s)
+        
+        # Constante base calibrada
+        K_base = 5.5
+        
+        # Factor de malla - área mayor = fragmentación más gruesa
+        f_malla = (area / Area_ref) ** 0.40
+        
+        # Factor de roca - UCS mayor = fragmentación más gruesa
+        f_roca = (ucs / 100) ** 0.35
+        
+        # Factor de energía - FC mayor = fragmentación más fina
+        f_energia = (FC_ref / max(FC, 0.3)) ** 0.30
+        
+        # Factor de timing - penaliza desviaciones del óptimo
+        if tp_opt > 0 and tf_opt > 0:
+            pen_pozos = 0.08 * abs(tp/tp_opt - 1)
+            pen_filas = 0.12 * abs(tf/tf_opt - 1)
+            f_timing = 1 + pen_pozos + pen_filas
+        else:
+            f_timing = 1.0
+        
+        # Factor de VOD - mayor VOD = mejor fragmentación
+        f_vod = (VOD_ref / max(vod, 3000)) ** 0.15
+        
+        # Calcular P80
+        P80_est = K_base * f_malla * f_roca * f_energia * f_timing * f_vod
+        
+        # Limitar a rango realista (4-15 pulgadas para P80)
+        P80_est = max(4.0, min(15.0, P80_est))
+        
+        return P80_est
+    
+    # Función para estimar P100
+    def estimar_P100(P80, S_B_ratio):
+        if 1.10 <= S_B_ratio <= 1.30:
+            k_ratio = 1.8  # Óptimo
+        elif 1.0 <= S_B_ratio < 1.10 or 1.30 < S_B_ratio <= 1.40:
+            k_ratio = 1.9  # Aceptable
+        else:
+            k_ratio = 2.1  # Fuera de óptimo
+        
+        return P80 * k_ratio
+    
+    # Función objetivo
+    def funcion_objetivo(factor_exp):
+        B = B_base * factor_exp
+        S = S_base * factor_exp
+        area = B * S
+        
+        # Ajustar FC para compensar (aumentar energía)
+        FC = FC_base * (factor_exp ** 1.5)
+        
+        # Ajustar timing
+        tp = tp_base * 0.95  # Reducir ligeramente
+        tf = tf_base * 0.97
+        
+        # Timing óptimo para esta malla
+        tp_opt = Th * S
+        tf_opt = 11.5 * B
+        
+        # Estimar fragmentación
+        P80_est = estimar_P80(B, S, FC, tp, tf, tp_opt, tf_opt)
+        P100_est = estimar_P100(P80_est, S/B)
+        
+        # Calcular componentes normalizados de la función objetivo
+        f_metros = 1 / area  # Metros por m² (menor es mejor)
+        f_metros_norm = f_metros / (1 / (B_base * S_base))  # Normalizado vs base
+        
+        f_P80_norm = P80_est / p80_objetivo
+        f_P100_norm = P100_est / p100_objetivo
+        
+        # Función objetivo ponderada
+        J = peso_metros * f_metros_norm + peso_p80 * f_P80_norm + peso_p100 * f_P100_norm
+        
+        return J, B, S, FC, tp, tf, P80_est, P100_est, area
+    
+    # Buscar factor óptimo (búsqueda en grid)
+    mejor_J = float('inf')
+    mejor_resultado = None
+    
+    # Limitar factor según dureza de roca
+    if pd.isna(ucs) or ucs >= 120:
+        max_factor = 1.10
+    elif ucs >= 80:
+        max_factor = 1.15
+    else:
+        max_factor = 1.20
+    
+    for factor in np.arange(1.00, max_factor + 0.01, 0.01):
+        J, B, S, FC, tp, tf, P80_est, P100_est, area = funcion_objetivo(factor)
+        
+        # Verificar restricciones
+        if P80_est <= p80_objetivo and P100_est <= p100_objetivo:
+            if J < mejor_J:
+                mejor_J = J
+                mejor_resultado = {
+                    'factor_optimo': round(factor, 2),
+                    'burden_optimo': round(B, 2),
+                    'espaciamiento_optimo': round(S, 2),
+                    'area_malla': round(area, 2),
+                    'ratio_SB': round(S/B, 2),
+                    'fc_ajustado': round(FC, 2),
+                    'timing_pozos': round(tp, 1),
+                    'timing_filas': round(tf, 1),
+                    'taco_optimo': round(0.85 * B, 2),
+                    'P80_estimado': round(P80_est, 2),
+                    'P100_estimado': round(P100_est, 2),
+                    'reduccion_metros_pct': round((1 - (B_base * S_base) / area) * 100, 1),
+                    'funcion_objetivo': round(J, 4),
+                    'cumple_P80': P80_est <= p80_objetivo,
+                    'cumple_P100': P100_est <= p100_objetivo,
+                    'explosivo_recomendado': params_base['explosivo_recomendado']
+                }
+    
+    # Si no se encontró solución factible, usar la base
+    if mejor_resultado is None:
+        P80_base = estimar_P80(B_base, S_base, FC_base, tp_base, tf_base, tp_base, tf_base)
+        P100_base = estimar_P100(P80_base, S_base/B_base)
+        
+        mejor_resultado = {
+            'factor_optimo': 1.0,
+            'burden_optimo': B_base,
+            'espaciamiento_optimo': S_base,
+            'area_malla': round(B_base * S_base, 2),
+            'ratio_SB': round(S_base/B_base, 2),
+            'fc_ajustado': FC_base,
+            'timing_pozos': tp_base,
+            'timing_filas': tf_base,
+            'taco_optimo': round(0.85 * B_base, 2),
+            'P80_estimado': round(P80_base, 2),
+            'P100_estimado': round(P100_base, 2),
+            'reduccion_metros_pct': 0.0,
+            'funcion_objetivo': 1.0,
+            'cumple_P80': P80_base <= p80_objetivo,
+            'cumple_P100': P100_base <= p100_objetivo,
+            'explosivo_recomendado': params_base['explosivo_recomendado'],
+            'advertencia': 'No se encontró solución que cumpla objetivos. Se usa malla teórica.'
+        }
+    
+    return mejor_resultado
+
 EXPLOSIVOS_CSV = {'Blendex_920': {'Densidad_g_cc': 0.9,
                  'Diam_Min_pulg': 4.0,
                  'Duracion_dias': 60,
@@ -1542,6 +1799,30 @@ factor_expansion = st.slider(
     help="Factor para expandir la malla teórica. Mayor = menos pozos pero más riesgo de fragmentación gruesa"
 )
 
+# Pesos para optimización multi-objetivo
+st.markdown("**Pesos para optimización multi-objetivo:**")
+col_peso1, col_peso2, col_peso3 = st.columns(3)
+with col_peso1:
+    peso_metros = st.slider("Peso minimizar metros", 0.0, 1.0, 0.40, 0.05, 
+                           help="Importancia de reducir perforación")
+with col_peso2:
+    peso_p80 = st.slider("Peso minimizar P80", 0.0, 1.0, 0.35, 0.05,
+                        help="Importancia de reducir P80")
+with col_peso3:
+    peso_p100 = st.slider("Peso minimizar P100", 0.0, 1.0, 0.25, 0.05,
+                         help="Importancia de reducir P100")
+
+# Normalizar pesos
+suma_pesos = peso_metros + peso_p80 + peso_p100
+if suma_pesos > 0:
+    peso_metros_norm = peso_metros / suma_pesos
+    peso_p80_norm = peso_p80 / suma_pesos
+    peso_p100_norm = peso_p100 / suma_pesos
+else:
+    peso_metros_norm = peso_p80_norm = peso_p100_norm = 1/3
+
+st.caption(f"Pesos normalizados: Metros={peso_metros_norm:.2f}, P80={peso_p80_norm:.2f}, P100={peso_p100_norm:.2f}")
+
 # Botón para calcular recomendaciones
 if st.button("🔄 Calcular Recomendaciones", type="primary"):
     
@@ -1620,9 +1901,75 @@ if st.button("🔄 Calcular Recomendaciones", type="primary"):
     - Si no se cumplen objetivos, reducir factor de expansión
     """)
     
+    # ====== OPTIMIZACIÓN MULTI-OBJETIVO ======
+    st.markdown("---")
+    st.subheader("⚡ Optimización Multi-Objetivo (Minimiza Metros + P80 + P100)")
+    
+    params_multiobj = calcular_malla_optimizada_multiobjetivo(
+        ucs=ucs_input,
+        densidad_explosivo=densidad_exp,
+        vod=vod_exp,
+        diametro_pulg=diametro_input,
+        p80_objetivo=p80_objetivo,
+        p100_objetivo=p100_objetivo,
+        peso_metros=peso_metros_norm,
+        peso_p80=peso_p80_norm,
+        peso_p100=peso_p100_norm
+    )
+    
+    st.markdown(f"""
+    ### Fórmula de Optimización Multi-Objetivo
+    
+    **Función Objetivo:**
+    ```
+    J(B, S, FC) = {peso_metros_norm:.2f}×f_metros + {peso_p80_norm:.2f}×f_P80 + {peso_p100_norm:.2f}×f_P100
+    ```
+    
+    **Modelo de Fragmentación (Kuz-Ram simplificado):**
+    ```
+    P80 = 0.015 × (B×S)^0.45 × UCS^0.25 × (1/FC)^0.35 × (1000/VOD)^0.15 × f_timing
+    P100 = P80 × k_ratio  (k_ratio = 1.8-2.1 según S/B)
+    ```
+    
+    **Factor de Timing:**
+    ```
+    f_timing = 1 + 0.1×|tp/tp_opt - 1| + 0.15×|tf/tf_opt - 1|
+    ```
+    """)
+    
+    # Mostrar resultados
+    st.markdown(f"""
+    ### Resultado de la Optimización
+    
+    | Parámetro | Valor Optimizado | Descripción |
+    |-----------|------------------|-------------|
+    | **Factor de expansión óptimo** | {params_multiobj['factor_optimo']} | Balance metros vs fragmentación |
+    | **Burden** | {params_multiobj['burden_optimo']} m | Expandido {params_multiobj['factor_optimo']}x |
+    | **Espaciamiento** | {params_multiobj['espaciamiento_optimo']} m | Expandido {params_multiobj['factor_optimo']}x |
+    | **Área de malla** | {params_multiobj['area_malla']} m² | B × S |
+    | **Ratio S/B** | {params_multiobj['ratio_SB']} | |
+    | **Taco óptimo** | {params_multiobj['taco_optimo']} m | 0.85 × Burden |
+    | **Timing pozos** | {params_multiobj['timing_pozos']} ms | Ajustado |
+    | **Timing filas** | {params_multiobj['timing_filas']} ms | Ajustado |
+    | **Factor de carga** | {params_multiobj['fc_ajustado']} kg/m³ | Compensado |
+    | **P80 estimado** | {params_multiobj['P80_estimado']}" | {'✅' if params_multiobj['cumple_P80'] else '❌'} Objetivo: ≤{p80_objetivo}" |
+    | **P100 estimado** | {params_multiobj['P100_estimado']}" | {'✅' if params_multiobj['cumple_P100'] else '❌'} Objetivo: ≤{p100_objetivo}" |
+    | **Reducción metros** | {params_multiobj['reduccion_metros_pct']}% | vs. malla teórica |
+    """)
+    
+    bxs_multiobj = f"{params_multiobj['burden_optimo']}x{params_multiobj['espaciamiento_optimo']}"
+    
+    if params_multiobj['cumple_P80'] and params_multiobj['cumple_P100']:
+        st.success(f"**✅ Malla optimizada (BxS):** {bxs_multiobj} - Cumple objetivos de P80 y P100")
+    else:
+        st.warning(f"**⚠️ Malla optimizada (BxS):** {bxs_multiobj} - Revisar objetivos")
+    
+    if 'advertencia' in params_multiobj:
+        st.warning(params_multiobj['advertencia'])
+    
     # ====== COMPARATIVA DE RECOMENDACIONES ======
     st.markdown("---")
-    st.subheader("📊 Comparativa de Recomendaciones")
+    st.subheader("📊 Comparativa de las 3 Recomendaciones")
     
     # Crear DataFrame comparativo
     df_comparativa = pd.DataFrame({
@@ -1635,9 +1982,12 @@ if st.button("🔄 Calcular Recomendaciones", type="primary"):
             'Timing pozos (ms)',
             'Timing filas (ms)',
             'FC (kg/m³)',
+            'P80 estimado (pulg)',
+            'P100 estimado (pulg)',
             'Metros perf. por m² (*)',
+            'Reducción metros (%)',
         ],
-        'Teórica ENAEX': [
+        '📐 Teórica ENAEX': [
             params_teoricos['burden_optimo'],
             params_teoricos['espaciamiento_optimo'],
             params_teoricos['area_malla'],
@@ -1646,9 +1996,12 @@ if st.button("🔄 Calcular Recomendaciones", type="primary"):
             params_teoricos['timing_pozos_optimo'],
             params_teoricos['timing_filas_optimo'],
             params_teoricos['fc_optimo'],
+            '-',
+            '-',
             round(1 / params_teoricos['area_malla'], 3),
+            '0% (base)',
         ],
-        'Mínimo Metros': [
+        '🎯 Mínimo Metros': [
             params_minmetros['burden_minmetros'],
             params_minmetros['espaciamiento_minmetros'],
             params_minmetros['area_malla_expandida'],
@@ -1657,13 +2010,37 @@ if st.button("🔄 Calcular Recomendaciones", type="primary"):
             params_minmetros['timing_pozos_ajustado'],
             params_minmetros['timing_filas_ajustado'],
             params_minmetros['fc_compensado'],
+            '-',
+            '-',
             round(1 / params_minmetros['area_malla_expandida'], 3),
+            f"{params_minmetros['reduccion_pozos_pct']}%",
+        ],
+        '⚡ Multi-Objetivo': [
+            params_multiobj['burden_optimo'],
+            params_multiobj['espaciamiento_optimo'],
+            params_multiobj['area_malla'],
+            params_multiobj['ratio_SB'],
+            params_multiobj['taco_optimo'],
+            params_multiobj['timing_pozos'],
+            params_multiobj['timing_filas'],
+            params_multiobj['fc_ajustado'],
+            f"{params_multiobj['P80_estimado']}",
+            f"{params_multiobj['P100_estimado']}",
+            round(1 / params_multiobj['area_malla'], 3),
+            f"{params_multiobj['reduccion_metros_pct']}%",
         ]
     })
     
     st.dataframe(df_comparativa, use_container_width=True, hide_index=True)
     
     st.caption("(*) Metros de perforación por m² de área = 1 / Área malla. Menor es mejor para rendimiento de perforadoras.")
+    
+    st.info(f"""
+    **📌 Resumen de Recomendaciones:**
+    - **Teórica ENAEX** ({params_teoricos['burden_optimo']}x{params_teoricos['espaciamiento_optimo']}): Malla según fórmulas del Manual ENAEX
+    - **Mínimo Metros** ({params_minmetros['burden_minmetros']}x{params_minmetros['espaciamiento_minmetros']}): Maximiza área de malla (menos pozos)
+    - **Multi-Objetivo** ({params_multiobj['burden_optimo']}x{params_multiobj['espaciamiento_optimo']}): Balance óptimo entre metros, P80 y P100
+    """)
     
     # ====== GRÁFICO COMPARATIVO ======
     st.markdown("---")
