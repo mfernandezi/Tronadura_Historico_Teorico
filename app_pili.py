@@ -424,12 +424,53 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
         
         return max(5.0, min(40.0, X50))  # Limitar a rango realista (cm)
     
-    def estimar_fragmentacion(B, S, taco):
+    def calcular_timing_optimo(B, S):
         """
-        Estima P80 y P100 usando modelo calibrado.
+        Calcula timing óptimo según Konya.
         
-        P80 = 1.36 × X50 × f_taco / 2.54    [pulgadas]
-        P100 = 5.82 × X50 × f_taco / 2.54   [pulgadas]
+        Timing pozos = Th × S  (Th según UCS)
+        Timing filas = 11.5 × B
+        
+        Donde Th (ms/m):
+        - UCS < 50: Th = 6.5 (roca blanda)
+        - UCS 50-80: Th = 5.5
+        - UCS 80-120: Th = 4.5
+        - UCS > 120: Th = 3.5 (roca dura)
+        """
+        tp_opt = Th * S
+        tf_opt = 11.5 * B
+        return tp_opt, tf_opt
+    
+    def calcular_factor_timing(tp, tf, tp_opt, tf_opt):
+        """
+        Factor de corrección por timing.
+        
+        f_timing = 1.0 + 0.08×|tp/tp_opt - 1| + 0.12×|tf/tf_opt - 1|
+        
+        - Timing óptimo: f_timing = 1.0
+        - Desviaciones penalizan la fragmentación
+        """
+        if tp_opt <= 0 or tf_opt <= 0:
+            return 1.0
+        
+        # Penalización por desviación del timing óptimo
+        pen_pozos = 0.08 * abs(tp / tp_opt - 1.0)
+        pen_filas = 0.12 * abs(tf / tf_opt - 1.0)
+        
+        f_timing = 1.0 + pen_pozos + pen_filas
+        
+        return max(0.85, min(1.3, f_timing))  # Limitar rango
+    
+    def estimar_fragmentacion(B, S, taco, tp=None, tf=None):
+        """
+        Estima P80 y P100 usando modelo calibrado con factor de timing.
+        
+        P80 = 1.36 × X50 × f_taco × f_timing / 2.54    [pulgadas]
+        P100 = 5.82 × X50 × f_taco × f_timing / 2.54   [pulgadas]
+        
+        Donde:
+        - f_taco = factor de taco según tipo de malla
+        - f_timing = factor de corrección por timing (1.0 si óptimo)
         """
         # Calcular X50 (cm)
         X50_cm = calcular_X50_calibrado(B, S, taco)
@@ -437,9 +478,21 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
         # Factor de taco según tipo de malla
         f_taco = calcular_factor_taco(B, taco)
         
-        # P80 y P100 (convertir de cm a pulgadas: /2.54)
-        P80 = 1.36 * X50_cm * f_taco / 2.54
-        P100 = 5.82 * X50_cm * f_taco / 2.54
+        # Timing óptimo
+        tp_opt, tf_opt = calcular_timing_optimo(B, S)
+        
+        # Si no se proporcionan tiempos, usar óptimos
+        if tp is None:
+            tp = tp_opt
+        if tf is None:
+            tf = tf_opt
+        
+        # Factor de timing
+        f_timing = calcular_factor_timing(tp, tf, tp_opt, tf_opt)
+        
+        # P80 y P100 con factores de corrección (convertir cm a pulgadas: /2.54)
+        P80 = 1.36 * X50_cm * f_taco * f_timing / 2.54
+        P100 = 5.82 * X50_cm * f_taco * f_timing / 2.54
         
         # Carga por pozo
         Q = calcular_carga_pozo(taco)
@@ -448,20 +501,22 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
         P80 = max(2.0, min(15.0, P80))
         P100 = max(5.0, min(30.0, P100))
         
-        return X50_cm, P80, P100, f_taco, Q
+        return X50_cm, P80, P100, f_taco, f_timing, Q, tp_opt, tf_opt
     
-    def funcion_objetivo(B, S, taco):
+    def funcion_objetivo(B, S, taco, tp=None, tf=None):
         """
-        Función objetivo calibrada:
+        Función objetivo calibrada con timing:
         min f = 0.30×(Metros/1500) + 0.20×(P80/4) + 0.35×(P100/12) + 0.15×(σ/0.5)
+        
+        Incluye penalización por timing subóptimo en la fragmentación.
         """
         area = B * S
         
         # Metros perforados por hectárea
         metros_por_ha = (10000 / area) * H
         
-        # Fragmentación
-        X50, P80_est, P100_est, f_taco, Q = estimar_fragmentacion(B, S, taco)
+        # Fragmentación con factor de timing
+        X50, P80_est, P100_est, f_taco, f_timing, Q, tp_opt, tf_opt = estimar_fragmentacion(B, S, taco, tp, tf)
         
         # Desviación estándar estimada (σ ≈ 0.15 × P80)
         sigma_P80 = 0.15 * P80_est
@@ -475,11 +530,12 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
         # Usar pesos calibrados: 0.30, 0.20, 0.35, 0.15
         J = 0.30 * f_metros + 0.20 * f_P80 + 0.35 * f_P100 + 0.15 * f_sigma
         
-        return J, X50, P80_est, P100_est, f_taco, Q, metros_por_ha, area
+        return J, X50, P80_est, P100_est, f_taco, f_timing, Q, metros_por_ha, area, tp_opt, tf_opt
     
     def simular_taco_intermedio(B, S):
         """
         Simula diferentes valores de taco para encontrar el óptimo.
+        Incluye timing óptimo en la simulación.
         Retorna tabla de simulación y taco óptimo.
         """
         resultados = []
@@ -487,17 +543,21 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
         mejor_J = float('inf')
         
         for taco in np.arange(4.0, 7.0, 0.25):
-            J, X50, P80, P100, f_taco, Q, metros, area = funcion_objetivo(B, S, taco)
+            # Usar timing óptimo para la simulación
+            J, X50, P80, P100, f_taco, f_timing, Q, metros, area, tp_opt, tf_opt = funcion_objetivo(B, S, taco)
             
             cumple = P80 <= p80_objetivo and P100 <= p100_objetivo
             
             resultados.append({
                 'taco': round(taco, 2),
                 'f_taco': round(f_taco, 2),
+                'f_timing': round(f_timing, 2),
                 'Q_kg': round(Q, 0),
                 'X50_cm': round(X50, 2),
                 'P80': round(P80, 2),
                 'P100': round(P100, 2),
+                'tp_opt': round(tp_opt, 1),
+                'tf_opt': round(tf_opt, 1),
                 'J': round(J, 4),
                 'cumple': cumple
             })
@@ -528,17 +588,13 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
         # Simular tacos para esta malla
         sim_tacos, taco_opt = simular_taco_intermedio(B, S)
         
-        # Calcular con taco óptimo
-        J, X50, P80_est, P100_est, f_taco, Q, metros, area = funcion_objetivo(B, S, taco_opt)
+        # Calcular con taco óptimo (usar timing óptimo)
+        J, X50, P80_est, P100_est, f_taco, f_timing, Q, metros, area, tp_opt, tf_opt = funcion_objetivo(B, S, taco_opt)
         
         # Verificar restricciones
         if P80_est <= p80_objetivo and P100_est <= p100_objetivo:
             if J < mejor_J:
                 mejor_J = J
-                
-                # Timing ajustado
-                tp = Th * S * 0.95
-                tf = 11.5 * B * 0.97
                 
                 # Determinar si necesita taco intermedio
                 tipo_malla = "CERRADA" if B < 8.0 else ("ABIERTA" if B >= 11.0 else "INTERMEDIA")
@@ -555,9 +611,12 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
                     'tipo_malla': tipo_malla,
                     'necesita_taco_intermedio': necesita_taco_int,
                     'f_taco': round(f_taco, 2),
+                    'f_timing': round(f_timing, 2),
                     'carga_pozo_kg': round(Q, 2),
-                    'timing_pozos': round(tp, 2),
-                    'timing_filas': round(tf, 2),
+                    'timing_pozos': round(tp_opt, 2),
+                    'timing_filas': round(tf_opt, 2),
+                    'timing_pozos_formula': f"Th × S = {Th} × {round(S, 2)}",
+                    'timing_filas_formula': f"11.5 × B = 11.5 × {round(B, 2)}",
                     'X50_estimado': round(X50, 2),
                     'P80_estimado': round(P80_est, 2),
                     'P100_estimado': round(P100_est, 2),
@@ -565,6 +624,7 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
                     'reduccion_metros_pct': round((1 - (B_base * S_base) / area) * 100, 2),
                     'funcion_objetivo': round(J, 4),
                     'A_calibrado': A_CALIBRADO,
+                    'Th_usado': Th,
                     'simulacion_tacos': sim_tacos,
                     'cumple_P80': P80_est <= p80_objetivo,
                     'cumple_P100': P100_est <= p100_objetivo,
@@ -575,7 +635,7 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
     # Si no se encontró solución factible, usar la base
     if mejor_resultado is None:
         taco_default = 5.25 if B_base < 8.0 else 0.85 * B_base
-        J, X50, P80_base, P100_base, f_taco, Q, metros, area = funcion_objetivo(B_base, S_base, taco_default)
+        J, X50, P80_base, P100_base, f_taco, f_timing, Q, metros, area, tp_opt, tf_opt = funcion_objetivo(B_base, S_base, taco_default)
         
         mejor_resultado = {
             'factor_optimo': 1.00,
@@ -588,9 +648,12 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
             'tipo_malla': "CERRADA" if B_base < 8.0 else "ABIERTA",
             'necesita_taco_intermedio': B_base < 8.0,
             'f_taco': round(f_taco, 2),
+            'f_timing': round(f_timing, 2),
             'carga_pozo_kg': round(Q, 2),
-            'timing_pozos': tp_base,
-            'timing_filas': tf_base,
+            'timing_pozos': round(tp_opt, 2),
+            'timing_filas': round(tf_opt, 2),
+            'timing_pozos_formula': f"Th × S = {Th} × {S_base}",
+            'timing_filas_formula': f"11.5 × B = 11.5 × {B_base}",
             'X50_estimado': round(X50, 2),
             'P80_estimado': round(P80_base, 2),
             'P100_estimado': round(P100_base, 2),
@@ -598,6 +661,7 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
             'reduccion_metros_pct': 0.00,
             'funcion_objetivo': round(J, 4),
             'A_calibrado': A_CALIBRADO,
+            'Th_usado': Th,
             'simulacion_tacos': [],
             'cumple_P80': P80_base <= p80_objetivo,
             'cumple_P100': P100_base <= p100_objetivo,
@@ -2031,7 +2095,8 @@ recomendaciones.append({
     'Área (m²)': round(params_teoricos['area_malla'], 2),
     'FC': round(params_teoricos['fc_optimo'], 2),
     'Taco (m)': round(params_teoricos['taco_optimo'], 2),
-    'T.Pozos (ms)': round(params_teoricos['timing_pozos_optimo'], 2),
+    'tp (ms)': round(params_teoricos['timing_pozos_optimo'], 2),
+    'tf (ms)': round(params_teoricos['timing_filas_optimo'], 2),
     'P80': 6.00,  # Estimado teórico
     'P100': 12.00,  # Estimado teórico
     'Ahorro (%)': 0.00,
@@ -2046,7 +2111,8 @@ recomendaciones.append({
     'Área (m²)': round(params_multiobj['area_malla'], 2),
     'FC': round(params_multiobj['fc_ajustado'], 2),
     'Taco (m)': round(params_multiobj['taco_optimo'], 2),
-    'T.Pozos (ms)': round(params_multiobj['timing_pozos'], 2),
+    'tp (ms)': round(params_multiobj['timing_pozos'], 2),
+    'tf (ms)': round(params_multiobj['timing_filas'], 2),
     'P80': round(params_multiobj['P80_estimado'], 2),
     'P100': round(params_multiobj['P100_estimado'], 2),
     'Ahorro (%)': round(params_multiobj['reduccion_metros_pct'], 2),
@@ -2061,6 +2127,7 @@ if top3_historico is not None and len(top3_historico) > 0:
         fc_h = row.get('FC', row.get('fc1', np.nan))
         taco_h = row.get('taco_gravilla', np.nan)
         tp_h = row.get('tpozos_ms', np.nan)
+        tf_h = row.get('tfilas_ms', np.nan)
         p80_h = row.get('P80TRON', np.nan)
         p100_h = row.get('P100TRON', np.nan)
         
@@ -2076,7 +2143,8 @@ if top3_historico is not None and len(top3_historico) > 0:
                 'Área (m²)': area_h,
                 'FC': round(fc_h, 2) if pd.notna(fc_h) else '-',
                 'Taco (m)': round(taco_h, 2) if pd.notna(taco_h) else '-',
-                'T.Pozos (ms)': round(tp_h, 2) if pd.notna(tp_h) else '-',
+                'tp (ms)': round(tp_h, 2) if pd.notna(tp_h) else '-',
+                'tf (ms)': round(tf_h, 2) if pd.notna(tf_h) else '-',
                 'P80': round(p80_h, 2) if pd.notna(p80_h) else '-',
                 'P100': round(p100_h, 2) if pd.notna(p100_h) else '-',
                 'Ahorro (%)': ahorro_h,
@@ -2233,6 +2301,52 @@ with col_taco3:
     </div>
     """, unsafe_allow_html=True)
 
+# Tarjeta adicional: Timing óptimo
+st.markdown("")  # Espacio
+col_timing1, col_timing2, col_timing3 = st.columns(3)
+
+tp_opt = params_multiobj.get('timing_pozos', 33.75)
+tf_opt = params_multiobj.get('timing_filas', 74.75)
+Th_usado = params_multiobj.get('Th_usado', 4.5)
+f_timing = params_multiobj.get('f_timing', 1.0)
+
+with col_timing1:
+    st.markdown(f"""
+    <div style="background-color:#e3f2fd; padding:12px; border-radius:8px; border-left:4px solid #1976d2;">
+    <h5 style="margin:0; color:#1565c0;">⏱️ Timing Pozos (tp)</h5>
+    <h3 style="margin:5px 0; color:#1976d2;">{tp_opt:.1f} ms</h3>
+    <p style="margin:0; font-size:12px; color:#1565c0;">
+    tp = Th × S = {Th_usado} × {params_multiobj.get('espaciamiento_optimo', 7.5)}<br>
+    Th = {Th_usado} ms/m (según UCS)
+    </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_timing2:
+    st.markdown(f"""
+    <div style="background-color:#e3f2fd; padding:12px; border-radius:8px; border-left:4px solid #1976d2;">
+    <h5 style="margin:0; color:#1565c0;">⏱️ Timing Filas (tf)</h5>
+    <h3 style="margin:5px 0; color:#1976d2;">{tf_opt:.1f} ms</h3>
+    <p style="margin:0; font-size:12px; color:#1565c0;">
+    tf = 11.5 × B = 11.5 × {B_opt}<br>
+    Konya timing óptimo
+    </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col_timing3:
+    timing_status = "✅ Óptimo" if f_timing <= 1.02 else ("⚠️ Aceptable" if f_timing <= 1.1 else "⚠️ Revisar")
+    st.markdown(f"""
+    <div style="background-color:#{'e8f5e9' if f_timing <= 1.02 else 'fff3e0'}; padding:12px; border-radius:8px; border-left:4px solid #{'4caf50' if f_timing <= 1.02 else 'ff9800'};">
+    <h5 style="margin:0; color:#{'2e7d32' if f_timing <= 1.02 else 'e65100'};">📊 Factor Timing</h5>
+    <h3 style="margin:5px 0; color:#{'388e3c' if f_timing <= 1.02 else 'ef6c00'};">{f_timing:.2f}</h3>
+    <p style="margin:0; font-size:12px; color:#{'43a047' if f_timing <= 1.02 else 'f57c00'};">
+    {timing_status}<br>
+    f_timing = 1.0 + penalizaciones
+    </p>
+    </div>
+    """, unsafe_allow_html=True)
+
 # Simulación de tacos (si hay datos de simulación)
 if 'simulacion_tacos' in params_multiobj and len(params_multiobj['simulacion_tacos']) > 0:
     with st.expander("🔬 Ver simulación completa de tacos", expanded=False):
@@ -2249,24 +2363,33 @@ if 'simulacion_tacos' in params_multiobj and len(params_multiobj['simulacion_tac
         # Formatear columnas
         df_sim['taco'] = df_sim['taco'].apply(lambda x: f"{x:.2f} m")
         df_sim['f_taco'] = df_sim['f_taco'].apply(lambda x: f"{x:.2f}")
+        if 'f_timing' in df_sim.columns:
+            df_sim['f_timing'] = df_sim['f_timing'].apply(lambda x: f"{x:.2f}")
         df_sim['Q_kg'] = df_sim['Q_kg'].apply(lambda x: f"{x:.0f}")
         df_sim['P80'] = df_sim['P80'].apply(lambda x: f'{x:.2f}"')
         df_sim['P100'] = df_sim['P100'].apply(lambda x: f'{x:.2f}"')
+        if 'tp_opt' in df_sim.columns:
+            df_sim['tp_opt'] = df_sim['tp_opt'].apply(lambda x: f"{x:.1f}")
+        if 'tf_opt' in df_sim.columns:
+            df_sim['tf_opt'] = df_sim['tf_opt'].apply(lambda x: f"{x:.1f}")
         df_sim['cumple'] = df_sim['cumple'].apply(lambda x: '✅' if x else '❌')
         
         # Renombrar columnas
         df_sim = df_sim.rename(columns={
             'taco': 'Taco',
-            'f_taco': 'Factor Taco',
+            'f_taco': 'f_taco',
+            'f_timing': 'f_timing',
             'Q_kg': 'Carga (kg)',
             'P80': 'P80',
             'P100': 'P100',
+            'tp_opt': 'tp (ms)',
+            'tf_opt': 'tf (ms)',
             'J': 'f_objetivo',
             'cumple': 'Cumple'
         })
         
         # Mostrar solo columnas relevantes
-        cols_show = ['Taco', 'Factor Taco', 'Carga (kg)', 'P80', 'P100', 'Cumple']
+        cols_show = ['Taco', 'f_taco', 'f_timing', 'Carga (kg)', 'tp (ms)', 'tf (ms)', 'P80', 'P100', 'Cumple']
         cols_show = [c for c in cols_show if c in df_sim.columns]
         
         st.dataframe(df_sim[cols_show], use_container_width=True, hide_index=True)
@@ -2387,11 +2510,15 @@ with st.expander("📚 Ver fórmulas y explicaciones", expanded=False):
     X50 = 19.9 × 0.073 × (B×S×H/Q)^0.8 × Q^0.167 × (S/B)^0.1   [cm]
     ```
     
-    **Conversión a P80 y P100:**
+    **Conversión a P80 y P100 (con factores de corrección):**
     ```
-    P80 = 1.36 × X50 × f_taco / 2.54    [pulgadas]
-    P100 = 5.82 × X50 × f_taco / 2.54   [pulgadas]
+    P80 = 1.36 × X50 × f_taco × f_timing / 2.54    [pulgadas]
+    P100 = 5.82 × X50 × f_taco × f_timing / 2.54   [pulgadas]
     ```
+    
+    Donde:
+    - **f_taco** = factor de taco según tipo de malla
+    - **f_timing** = factor de timing (1.0 si timing óptimo)
     
     ---
     
@@ -2411,7 +2538,34 @@ with st.expander("📚 Ver fórmulas y explicaciones", expanded=False):
     
     ---
     
-    ### 4. FUNCIÓN OBJETIVO MULTI-OBJETIVO
+    ### 4. FACTOR DE TIMING (Konya)
+    
+    **Timing óptimo entre pozos y filas:**
+    ```
+    Timing pozos (tp) = Th × S    [ms]
+    Timing filas (tf) = 11.5 × B  [ms]
+    ```
+    
+    Donde Th depende de la dureza de roca:
+    
+    | UCS (MPa) | Tipo de Roca | Th (ms/m) |
+    |-----------|--------------|-----------|
+    | < 50 | Blanda (arena, margas) | 6.5 |
+    | 50-80 | Media (calizas, esquistos) | 5.5 |
+    | 80-120 | Dura (calizas compactas, granitos) | 4.5 |
+    | > 120 | Muy dura (gneis compactos) | 3.5 |
+    
+    **Factor de corrección por timing:**
+    ```
+    f_timing = 1.0 + 0.08×|tp/tp_opt - 1| + 0.12×|tf/tf_opt - 1|
+    ```
+    
+    - **f_timing = 1.0** → Timing óptimo, fragmentación esperada
+    - **f_timing > 1.0** → Timing subóptimo, fragmentación más gruesa
+    
+    ---
+    
+    ### 6. FUNCIÓN OBJETIVO MULTI-OBJETIVO
     
     **Minimización simultánea (pesos calibrados):**
     ```
@@ -2427,7 +2581,7 @@ with st.expander("📚 Ver fórmulas y explicaciones", expanded=False):
     
     ---
     
-    ### 5. SIMULACIÓN TACO INTERMEDIO (Malla Cerrada B=6.5m)
+    ### 7. SIMULACIÓN TACO INTERMEDIO (Malla Cerrada B=6.5m)
     
     | Taco | f_taco | Carga | P80 | P100 | Cumple |
     |------|--------|-------|-----|------|--------|
@@ -2442,7 +2596,7 @@ with st.expander("📚 Ver fórmulas y explicaciones", expanded=False):
     
     ---
     
-    ### 6. CONSTANTES SEGÚN DUREZA DE ROCA
+    ### 8. CONSTANTES SEGÚN DUREZA DE ROCA
     
     | UCS (MPa) | Tipo | Kb | Ks (S/B) | Th (ms/m) | FC óptimo |
     |-----------|------|-----|----------|-----------|-----------|
@@ -2540,6 +2694,30 @@ with st.expander("📈 Análisis de Sensibilidad (¿Qué variable influye más?)
         'cambio_up': ((p80_vod_up - p80_base) / p80_base) * 100,
         'cambio_down': ((p80_vod_down - p80_base) / p80_base) * 100,
         'rango': abs(p80_vod_up - p80_vod_down)
+    }
+    
+    # Sensibilidad a Timing (usando el factor de timing)
+    # f_timing = 1.0 + 0.08×|tp/tp_opt - 1| + 0.12×|tf/tf_opt - 1|
+    f_timing_base = 1.0
+    f_timing_up = 1.0 + 0.08 * variacion  # tp 20% desviado del óptimo
+    f_timing_down = 1.0 + 0.08 * variacion  # Penalización simétrica
+    
+    # Efecto en P80: P80_real = P80_estimado × f_timing
+    p80_timing_up = p80_base * f_timing_up
+    p80_timing_down = p80_base  # Sin penalización
+    sensibilidades['Timing pozos'] = {
+        'cambio_up': ((p80_timing_up - p80_base) / p80_base) * 100,
+        'cambio_down': 0,  # Timing óptimo no penaliza
+        'rango': abs(p80_timing_up - p80_base)
+    }
+    
+    # Timing filas tiene mayor impacto (coef 0.12 vs 0.08)
+    f_timing_filas_up = 1.0 + 0.12 * variacion
+    p80_tf_up = p80_base * f_timing_filas_up
+    sensibilidades['Timing filas'] = {
+        'cambio_up': ((p80_tf_up - p80_base) / p80_base) * 100,
+        'cambio_down': 0,
+        'rango': abs(p80_tf_up - p80_base)
     }
     
     # Sensibilidad a Área de Malla (B×S combinado)
