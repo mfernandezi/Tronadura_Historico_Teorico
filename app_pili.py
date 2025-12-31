@@ -1,10 +1,12 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 import plotly.express as px
 import os
+import json
 
 # ============================================
 # FICHA TÉCNICA EXPLOSIVOS
@@ -2250,6 +2252,1016 @@ with col_card3:
         </p>
         </div>
         """, unsafe_allow_html=True)
+
+# ===== SIMULADOR 3D DE TRONADURA =====
+st.markdown("---")
+st.markdown("## 🎮 Simulador 3D de Tronadura")
+
+st.markdown("""
+Este simulador permite visualizar la detonación y las curvas granulométricas para cada configuración recomendada.
+Selecciona un escenario y presiona "DETONAR" para ver la simulación.
+""")
+
+# Preparar opciones de escenarios
+escenarios_simulacion = []
+
+# Añadir teórica
+escenarios_simulacion.append({
+    'nombre': f"📐 Teórica: {params_teoricos['burden_optimo']} × {params_teoricos['espaciamiento_optimo']}",
+    'B': params_teoricos['burden_optimo'],
+    'S': params_teoricos['espaciamiento_optimo'],
+    'T': params_teoricos['taco_optimo'],
+    'H': altura_banco_est,
+    'J': 1.5,
+    'd': diametro_input * 25.4,  # Convertir pulgadas a mm
+    'Th': params_teoricos['Th'],
+    'X50': 15.0,  # cm estimado
+    'n': 1.2,
+    'color': '#3498db'
+})
+
+# Añadir optimizada
+escenarios_simulacion.append({
+    'nombre': f"⚡ Optimizada: {params_multiobj['burden_optimo']} × {params_multiobj['espaciamiento_optimo']}",
+    'B': params_multiobj['burden_optimo'],
+    'S': params_multiobj['espaciamiento_optimo'],
+    'T': params_multiobj['taco_optimo'],
+    'H': altura_banco_est,
+    'J': 1.5,
+    'd': diametro_input * 25.4,
+    'Th': params_multiobj.get('Th_usado', 4.5),
+    'X50': params_multiobj.get('X50_estimado', 12.0),
+    'n': 1.15,
+    'color': '#27ae60'
+})
+
+# Añadir históricos si existen
+if top3_historico is not None and len(top3_historico) > 0:
+    for idx, row in top3_historico.head(2).iterrows():
+        burden_h = row.get('Burden', 7.0)
+        esp_h = row.get('Espaciamiento', 8.0)
+        taco_h = row.get('taco_gravilla', 5.5)
+        if pd.notna(burden_h) and pd.notna(esp_h):
+            escenarios_simulacion.append({
+                'nombre': f"📊 Histórica: {round(burden_h, 2)} × {round(esp_h, 2)}",
+                'B': float(burden_h),
+                'S': float(esp_h),
+                'T': float(taco_h) if pd.notna(taco_h) else 5.5,
+                'H': altura_banco_est,
+                'J': 1.5,
+                'd': diametro_input * 25.4,
+                'Th': 4.5,
+                'X50': 14.0,
+                'n': 1.1,
+                'color': '#e74c3c'
+            })
+
+# Selector de escenario
+col_sim1, col_sim2 = st.columns([2, 1])
+
+with col_sim1:
+    escenario_seleccionado = st.selectbox(
+        "🎯 Seleccionar escenario a simular:",
+        options=[e['nombre'] for e in escenarios_simulacion],
+        index=1  # Por defecto la optimizada
+    )
+
+with col_sim2:
+    mostrar_comparativa = st.checkbox("📊 Mostrar curvas comparativas", value=True)
+
+# Obtener parámetros del escenario seleccionado
+esc_actual = next((e for e in escenarios_simulacion if e['nombre'] == escenario_seleccionado), escenarios_simulacion[0])
+
+# Generar el HTML del simulador con los parámetros
+def generar_simulador_html(escenarios, escenario_actual, mostrar_todas=True):
+    # Convertir escenarios a JSON para JavaScript
+    escenarios_js = []
+    for e in escenarios:
+        escenarios_js.append({
+            'name': e['nombre'].split(': ')[1] if ': ' in e['nombre'] else e['nombre'],
+            'B': e['B'],
+            'S': e['S'],
+            'T': e['T'],
+            'H': e['H'],
+            'J': e['J'],
+            'd': e['d'],
+            'Th': e['Th'],
+            'X50': e['X50'],
+            'n': e['n'],
+            'color': e['color']
+        })
+    
+    escenarios_json = json.dumps(escenarios_js)
+    
+    html_code = f'''
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{ 
+                font-family: 'Segoe UI', Arial, sans-serif; 
+                background: #2c3e50;
+                overflow: hidden;
+            }}
+            #container {{ width: 100%; height: 500px; }}
+            
+            .panel {{
+                position: absolute;
+                background: rgba(255,255,255,0.97);
+                color: #222;
+                border-radius: 8px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                font-size: 11px;
+                max-height: 480px;
+                overflow-y: auto;
+            }}
+            .panel-header {{
+                background: #1976d2;
+                color: #fff;
+                padding: 10px 12px;
+                border-radius: 8px 8px 0 0;
+                font-weight: bold;
+                font-size: 12px;
+            }}
+            .panel-content {{
+                padding: 12px;
+            }}
+            
+            #curve-panel {{
+                top: 10px;
+                right: 10px;
+                width: 420px;
+            }}
+            
+            #curve-canvas {{
+                display: block;
+                border-radius: 6px;
+                border: 1px solid #ddd;
+            }}
+            
+            .stats-grid {{
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 6px;
+                margin-top: 10px;
+            }}
+            .stat-box {{
+                background: #f8f9fa;
+                padding: 8px;
+                border-radius: 5px;
+                text-align: center;
+                border: 1px solid #e0e0e0;
+            }}
+            .stat-title {{ color: #666; font-size: 9px; text-transform: uppercase; }}
+            .stat-value {{ font-size: 13px; font-weight: bold; margin-top: 2px; }}
+            .stat-ok {{ color: #27ae60; }}
+            .stat-bad {{ color: #e74c3c; }}
+            
+            .btn {{
+                padding: 10px 20px;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-weight: bold;
+                font-size: 12px;
+                margin: 3px;
+                transition: all 0.2s;
+            }}
+            .btn:hover {{ transform: scale(1.02); }}
+            .btn-primary {{ background: #1976d2; color: #fff; }}
+            .btn-danger {{ background: #e74c3c; color: #fff; }}
+            .btn-success {{ background: #27ae60; color: #fff; }}
+            .btn:disabled {{ background: #bdc3c7; cursor: not-allowed; transform: none; }}
+            
+            #legend-3d {{
+                position: absolute;
+                bottom: 70px;
+                left: 10px;
+                background: rgba(255,255,255,0.95);
+                padding: 10px 15px;
+                border-radius: 6px;
+                font-size: 10px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+            }}
+            .leg-item {{
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                margin: 3px 0;
+            }}
+            .leg-color {{
+                width: 12px;
+                height: 12px;
+                border-radius: 2px;
+                border: 1px solid #999;
+            }}
+
+            #controls {{
+                position: absolute;
+                bottom: 15px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(255,255,255,0.97);
+                padding: 12px 20px;
+                border-radius: 8px;
+                display: flex;
+                gap: 10px;
+                align-items: center;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            }}
+            
+            #time-display {{
+                position: absolute;
+                bottom: 70px;
+                left: 50%;
+                transform: translateX(-50%);
+                font-size: 18px;
+                font-family: 'Courier New', monospace;
+                color: #fff;
+                background: rgba(0,0,0,0.75);
+                padding: 8px 20px;
+                border-radius: 8px;
+            }}
+            
+            #explosion-indicator {{
+                position: absolute;
+                top: 45%;
+                left: 40%;
+                transform: translate(-50%, -50%);
+                font-size: 40px;
+                pointer-events: none;
+                opacity: 0;
+                z-index: 100;
+            }}
+            
+            .info-panel {{
+                position: absolute;
+                top: 10px;
+                left: 10px;
+                background: rgba(255,255,255,0.95);
+                padding: 12px;
+                border-radius: 8px;
+                font-size: 11px;
+                width: 200px;
+            }}
+            .info-row {{
+                display: flex;
+                justify-content: space-between;
+                padding: 4px 0;
+                border-bottom: 1px solid #eee;
+            }}
+            .info-label {{ color: #666; }}
+            .info-value {{ font-weight: bold; color: #1976d2; }}
+        </style>
+    </head>
+    <body>
+        <div id="container"></div>
+        <div id="explosion-indicator">💥</div>
+        
+        <!-- Panel Info -->
+        <div class="info-panel">
+            <div style="font-weight:bold; color:#1976d2; margin-bottom:8px;">📐 Parámetros Actuales</div>
+            <div class="info-row"><span class="info-label">Burden:</span><span class="info-value" id="info-B">{esc_actual['B']} m</span></div>
+            <div class="info-row"><span class="info-label">Espaciamiento:</span><span class="info-value" id="info-S">{esc_actual['S']} m</span></div>
+            <div class="info-row"><span class="info-label">Taco:</span><span class="info-value" id="info-T">{esc_actual['T']} m</span></div>
+            <div class="info-row"><span class="info-label">Altura banco:</span><span class="info-value" id="info-H">{esc_actual['H']} m</span></div>
+            <div class="info-row"><span class="info-label">Pasadura:</span><span class="info-value" id="info-J">{esc_actual['J']} m</span></div>
+            <div class="info-row"><span class="info-label">Diámetro:</span><span class="info-value" id="info-d">{esc_actual['d']:.0f} mm</span></div>
+            <div class="info-row"><span class="info-label">X50:</span><span class="info-value" id="info-X50">{esc_actual['X50']} cm</span></div>
+        </div>
+        
+        <!-- Panel Curva Granulométrica -->
+        <div id="curve-panel" class="panel">
+            <div class="panel-header">📈 Curva Granulométrica Comparativa</div>
+            <div class="panel-content">
+                <canvas id="curve-canvas" width="400" height="220"></canvas>
+                <div class="stats-grid" id="stats-grid"></div>
+            </div>
+        </div>
+        
+        <!-- Leyenda 3D -->
+        <div id="legend-3d">
+            <div class="leg-item"><div class="leg-color" style="background:#00e5ff;"></div>Taco (material inerte)</div>
+            <div class="leg-item"><div class="leg-color" style="background:#ff1744;"></div>Carga explosiva (ANFO)</div>
+            <div class="leg-item"><div class="leg-color" style="background:#ffea00;"></div>Detonador/Booster</div>
+            <div class="leg-item"><div class="leg-color" style="background:#00e676;"></div>Pasadura (J={esc_actual['J']}m)</div>
+            <div class="leg-item"><div class="leg-color" style="background:rgba(120,144,156,0.5);"></div>Banco (roca)</div>
+        </div>
+        
+        <!-- Tiempo -->
+        <div id="time-display">T = 0.0 ms | Detonados: 0/16</div>
+        
+        <!-- Controles -->
+        <div id="controls">
+            <button class="btn btn-danger" id="btn-start" onclick="startDetonation()">🔥 DETONAR</button>
+            <button class="btn btn-primary" onclick="resetSimulation()">🔄 Reset</button>
+            <label style="color:#666; font-size:11px;">Velocidad:</label>
+            <input type="range" id="speed" min="1" max="100" value="40" style="width:80px;">
+        </div>
+
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+        <script>
+            const ROWS = 4, COLS = 4;
+            const allScenarios = {escenarios_json};
+            const showComparison = {'true' if mostrar_todas else 'false'};
+            
+            let scene, camera, renderer;
+            let pozos = [];
+            let bancoBlocks = [];
+            let fragments = [];
+            let effects = [];
+            let isDetonating = false;
+            let simulationTime = 0;
+            let fragmentSizes = [];
+            let savedScenarios = [];
+            let detonatedCount = 0;
+            
+            let params = {{
+                B: {esc_actual['B']}, 
+                S: {esc_actual['S']}, 
+                T: {esc_actual['T']}, 
+                H: {esc_actual['H']}, 
+                J: {esc_actual['J']}, 
+                d: {esc_actual['d']},
+                Th: {esc_actual['Th']}, 
+                Tr: 8,
+                X50: {esc_actual['X50']}, 
+                n: {esc_actual['n']}
+            }};
+
+            function init() {{
+                scene = new THREE.Scene();
+                scene.background = new THREE.Color(0x546e7a);
+
+                camera = new THREE.PerspectiveCamera(50, (window.innerWidth * 0.98) / 500, 0.1, 800);
+                camera.position.set(70, 45, 80);
+
+                renderer = new THREE.WebGLRenderer({{ antialias: true }});
+                renderer.setSize(window.innerWidth * 0.98, 500);
+                renderer.shadowMap.enabled = true;
+                document.getElementById('container').appendChild(renderer.domElement);
+
+                scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+                
+                const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+                sun.position.set(60, 100, 60);
+                sun.castShadow = true;
+                scene.add(sun);
+                
+                const fill = new THREE.DirectionalLight(0xadd8e6, 0.4);
+                fill.position.set(-40, 30, -40);
+                scene.add(fill);
+
+                setupControls();
+                createScene();
+                
+                if (showComparison) {{
+                    allScenarios.forEach(s => {{
+                        savedScenarios.push({{
+                            name: s.name,
+                            params: {{X50: s.X50, n: s.n}},
+                            fragmentSizes: [],
+                            color: s.color
+                        }});
+                    }});
+                }}
+                
+                drawCurve();
+                animate();
+            }}
+
+            function setupControls() {{
+                let drag = false, prev = {{x:0, y:0}};
+                let cam = {{ theta: 0.65, phi: 1.05, r: 90 }};
+
+                const updateCam = () => {{
+                    const tgt = new THREE.Vector3(params.S * 1.5, -6, params.B * 1.5);
+                    camera.position.set(
+                        tgt.x + cam.r * Math.sin(cam.phi) * Math.cos(cam.theta),
+                        tgt.y + cam.r * Math.cos(cam.phi),
+                        tgt.z + cam.r * Math.sin(cam.phi) * Math.sin(cam.theta)
+                    );
+                    camera.lookAt(tgt);
+                }};
+
+                renderer.domElement.onmousedown = e => {{ drag = true; prev = {{x: e.clientX, y: e.clientY}}; }};
+                renderer.domElement.onmousemove = e => {{
+                    if (!drag) return;
+                    cam.theta -= (e.clientX - prev.x) * 0.005;
+                    cam.phi = Math.max(0.25, Math.min(1.45, cam.phi + (e.clientY - prev.y) * 0.005));
+                    prev = {{x: e.clientX, y: e.clientY}};
+                    updateCam();
+                }};
+                renderer.domElement.onmouseup = () => drag = false;
+                renderer.domElement.onmouseleave = () => drag = false;
+                renderer.domElement.onwheel = e => {{
+                    cam.r = Math.max(40, Math.min(180, cam.r + e.deltaY * 0.07));
+                    updateCam();
+                }};
+                
+                window.updateCam = updateCam;
+                updateCam();
+            }}
+
+            function createScene() {{
+                while(scene.children.length > 4) scene.remove(scene.children[scene.children.length-1]);
+                pozos = []; bancoBlocks = []; fragments = []; effects = []; fragmentSizes = [];
+                detonatedCount = 0;
+
+                const {{ B, S, T, H, J, d, Th, Tr }} = params;
+                const totalWidth = S * (COLS - 1) + 15;
+                const totalDepth = B * (ROWS - 1) + 15;
+
+                const floor = new THREE.Mesh(
+                    new THREE.PlaneGeometry(totalWidth + 30, totalDepth + 30),
+                    new THREE.MeshLambertMaterial({{ color: 0xa0926c }})
+                );
+                floor.rotation.x = -Math.PI / 2;
+                floor.position.set(S * 1.5, -H - 0.05, B * 1.5);
+                floor.receiveShadow = true;
+                scene.add(floor);
+
+                createTransparentBank();
+
+                let id = 1;
+                for (let row = 0; row < ROWS; row++) {{
+                    for (let col = 0; col < COLS; col++) {{
+                        const x = col * S;
+                        const z = row * B;
+                        const th = Th * S;
+                        const tr = Tr * B;
+                        const detTime = col * th + row * tr;
+                        createDetailedPozo(id++, x, z, detTime);
+                    }}
+                }}
+
+                const grid = new THREE.GridHelper(Math.max(totalWidth, totalDepth), 25, 0x888888, 0x666666);
+                grid.position.set(S * 1.5, 0.02, B * 1.5);
+                scene.add(grid);
+            }}
+
+            function createTransparentBank() {{
+                const {{ B, S, H }} = params;
+                const width = S * (COLS + 0.5);
+                const depth = B * (ROWS + 0.5);
+                
+                const bancoGeom = new THREE.BoxGeometry(width, H, depth);
+                const bancoMat = new THREE.MeshLambertMaterial({{
+                    color: 0x78909c,
+                    transparent: true,
+                    opacity: 0.25,
+                    side: THREE.DoubleSide
+                }});
+                const banco = new THREE.Mesh(bancoGeom, bancoMat);
+                banco.position.set(S * 1.5 - S/2, -H/2, B * 1.5 - B/2);
+                scene.add(banco);
+                bancoBlocks.push(banco);
+
+                const edges = new THREE.EdgesGeometry(bancoGeom);
+                const lineMat = new THREE.LineBasicMaterial({{ color: 0x546e7a, linewidth: 2 }});
+                const wireframe = new THREE.LineSegments(edges, lineMat);
+                wireframe.position.copy(banco.position);
+                scene.add(wireframe);
+
+                const surf = new THREE.Mesh(
+                    new THREE.PlaneGeometry(width + 4, depth + 4),
+                    new THREE.MeshLambertMaterial({{ color: 0x6d5c4a }})
+                );
+                surf.rotation.x = -Math.PI / 2;
+                surf.position.set(S * 1.5 - S/2, 0.03, B * 1.5 - B/2);
+                surf.receiveShadow = true;
+                scene.add(surf);
+            }}
+
+            function createDetailedPozo(id, x, z, detTime) {{
+                const {{ T, H, J, d }} = params;
+                const L = H + J;
+                const dMetros = d / 1000;
+                const visualD = Math.max(dMetros * 1.5, 0.4);
+                
+                const grp = new THREE.Group();
+                grp.position.set(x, 0, z);
+
+                const ring = new THREE.Mesh(
+                    new THREE.RingGeometry(visualD, visualD + 0.15, 32),
+                    new THREE.MeshBasicMaterial({{ color: 0xffffff, side: THREE.DoubleSide }})
+                );
+                ring.rotation.x = -Math.PI / 2;
+                ring.position.y = 0.12;
+                grp.add(ring);
+
+                const pozoContour = new THREE.Mesh(
+                    new THREE.CylinderGeometry(visualD + 0.05, visualD + 0.05, L, 32, 1, true),
+                    new THREE.MeshBasicMaterial({{ color: 0x37474f, side: THREE.DoubleSide, transparent: true, opacity: 0.6 }})
+                );
+                pozoContour.position.y = -L / 2;
+                grp.add(pozoContour);
+
+                const taco = new THREE.Mesh(
+                    new THREE.CylinderGeometry(visualD * 0.95, visualD * 0.95, T, 32),
+                    new THREE.MeshPhongMaterial({{ 
+                        color: 0x00e5ff, 
+                        emissive: 0x00acc1, 
+                        emissiveIntensity: 0.4,
+                        shininess: 100
+                    }})
+                );
+                taco.position.y = -T / 2;
+                taco.castShadow = true;
+                grp.add(taco);
+
+                const Lc = L - T - J;
+                const carga = new THREE.Mesh(
+                    new THREE.CylinderGeometry(visualD * 0.85, visualD * 0.85, Lc, 32),
+                    new THREE.MeshPhongMaterial({{ 
+                        color: 0xff1744, 
+                        emissive: 0xc62828, 
+                        emissiveIntensity: 0.5,
+                        shininess: 100
+                    }})
+                );
+                carga.position.y = -T - Lc / 2;
+                carga.castShadow = true;
+                grp.add(carga);
+
+                const detonator = new THREE.Mesh(
+                    new THREE.CylinderGeometry(visualD * 0.5, visualD * 0.5, 0.5, 16),
+                    new THREE.MeshPhongMaterial({{ 
+                        color: 0xffea00, 
+                        emissive: 0xffc107, 
+                        emissiveIntensity: 0.6,
+                        shininess: 120
+                    }})
+                );
+                detonator.position.y = -T - Lc * 0.7;
+                detonator.castShadow = true;
+                grp.add(detonator);
+
+                const pas = new THREE.Mesh(
+                    new THREE.CylinderGeometry(visualD * 0.75, visualD * 0.75, J, 32),
+                    new THREE.MeshPhongMaterial({{ 
+                        color: 0x00e676, 
+                        emissive: 0x00c853, 
+                        emissiveIntensity: 0.35,
+                        shininess: 80
+                    }})
+                );
+                pas.position.y = -L + J / 2;
+                pas.castShadow = true;
+                grp.add(pas);
+
+                const cv = document.createElement('canvas');
+                cv.width = 120; cv.height = 70;
+                const ct = cv.getContext('2d');
+                ct.fillStyle = 'rgba(0,0,0,0.85)';
+                ct.fillRect(0, 0, 120, 70);
+                ct.strokeStyle = '#fff';
+                ct.lineWidth = 2;
+                ct.strokeRect(2, 2, 116, 66);
+                ct.fillStyle = '#fff';
+                ct.font = 'bold 22px Arial';
+                ct.textAlign = 'center';
+                ct.fillText('P' + id, 60, 28);
+                ct.font = '14px Arial';
+                ct.fillStyle = '#ffab40';
+                ct.fillText(detTime.toFixed(0) + ' ms', 60, 50);
+                
+                const spr = new THREE.Sprite(new THREE.SpriteMaterial({{ map: new THREE.CanvasTexture(cv) }}));
+                spr.position.y = 3;
+                spr.scale.set(3.5, 2, 1);
+                grp.add(spr);
+
+                scene.add(grp);
+                pozos.push({{ id, x, z, detTime, grp, taco, carga, pas, detonator, detonated: false }});
+            }}
+
+            function startDetonation() {{
+                if (isDetonating) return;
+                isDetonating = true;
+                simulationTime = 0;
+                fragmentSizes = [];
+                detonatedCount = 0;
+                document.getElementById('btn-start').disabled = true;
+            }}
+
+            function resetSimulation() {{
+                isDetonating = false;
+                simulationTime = 0;
+                fragmentSizes = [];
+                detonatedCount = 0;
+                document.getElementById('btn-start').disabled = false;
+                document.getElementById('time-display').textContent = 'T = 0.0 ms | Detonados: 0/' + (ROWS*COLS);
+                
+                fragments.forEach(f => scene.remove(f));
+                effects.forEach(e => scene.remove(e));
+                fragments = []; effects = [];
+                
+                createScene();
+                drawCurve();
+            }}
+
+            function updateSimulation(dt) {{
+                if (!isDetonating) return;
+                
+                const speed = document.getElementById('speed').value / 400;
+                const maxDetTime = Math.max(...pozos.map(p => p.detTime));
+                
+                if (detonatedCount < ROWS * COLS || simulationTime < maxDetTime + 100) {{
+                    simulationTime += dt * speed * 1000;
+                }}
+                
+                document.getElementById('time-display').textContent = 
+                    'T = ' + simulationTime.toFixed(1) + ' ms | Detonados: ' + detonatedCount + '/' + (ROWS*COLS);
+
+                pozos.forEach(p => {{
+                    if (!p.detonated && simulationTime >= p.detTime) {{
+                        triggerExplosion(p);
+                        p.detonated = true;
+                        detonatedCount++;
+                    }}
+                }});
+
+                updatePhysics();
+                updateEffects();
+
+                if (detonatedCount >= ROWS * COLS && simulationTime > maxDetTime + 300) {{
+                    const allSettled = fragments.every(f => f.userData.grounded);
+                    if (allSettled || simulationTime > maxDetTime + 800) {{
+                        isDetonating = false;
+                        document.getElementById('btn-start').disabled = false;
+                    }}
+                }}
+
+                if (fragmentSizes.length > 0 && detonatedCount > 0) drawCurve();
+            }}
+
+            function triggerExplosion(p) {{
+                const {{ H, T, X50, n }} = params;
+
+                p.taco.visible = false;
+                p.carga.visible = false;
+                p.pas.visible = false;
+                p.detonator.visible = false;
+
+                const indicator = document.getElementById('explosion-indicator');
+                indicator.textContent = '💥 P' + p.id;
+                indicator.style.opacity = 1;
+                setTimeout(() => indicator.style.opacity = 0, 100);
+
+                const sphere = new THREE.Mesh(
+                    new THREE.SphereGeometry(0.8, 20, 20),
+                    new THREE.MeshBasicMaterial({{ color: 0xff5500, transparent: true, opacity: 1 }})
+                );
+                sphere.position.set(p.x, -T - 3, p.z);
+                sphere.userData = {{ type: 'boom', age: 0 }};
+                scene.add(sphere);
+                effects.push(sphere);
+
+                const light = new THREE.PointLight(0xff4400, 4, 25);
+                light.position.set(p.x, -5, p.z);
+                light.userData = {{ type: 'light', age: 0 }};
+                scene.add(light);
+                effects.push(light);
+
+                for (let i = 0; i < 2; i++) {{
+                    setTimeout(() => {{
+                        const ring = new THREE.Mesh(
+                            new THREE.RingGeometry(0.4, 0.8, 32),
+                            new THREE.MeshBasicMaterial({{ color: 0xffaa00, transparent: true, opacity: 0.85, side: THREE.DoubleSide }})
+                        );
+                        ring.rotation.x = -Math.PI / 2;
+                        ring.position.set(p.x, 0.15, p.z);
+                        ring.userData = {{ type: 'wave', age: 0 }};
+                        scene.add(ring);
+                        effects.push(ring);
+                    }}, i * 30);
+                }}
+
+                const Xc = X50 / Math.pow(0.693, 1 / n);
+                const P100_cm = Xc * Math.pow(-Math.log(0.005), 1 / n);
+                
+                const numFrags = 25;
+                for (let i = 0; i < numFrags; i++) {{
+                    const u = Math.random() * 0.995;
+                    let size = Xc * Math.pow(-Math.log(1 - u), 1 / n);
+                    size = Math.min(size, P100_cm * 0.95);
+                    
+                    const vis = Math.max(0.12, Math.min(0.9, size / 18));
+                    const geom = new THREE.DodecahedronGeometry(vis, 0);
+                    
+                    const pos = geom.attributes.position;
+                    for (let j = 0; j < pos.count; j++) {{
+                        const f = 0.65 + Math.random() * 0.7;
+                        pos.setXYZ(j, pos.getX(j) * f, pos.getY(j) * f, pos.getZ(j) * f);
+                    }}
+                    geom.computeVertexNormals();
+
+                    const sh = 0.5 + Math.random() * 0.2;
+                    const frag = new THREE.Mesh(
+                        geom,
+                        new THREE.MeshLambertMaterial({{ color: new THREE.Color(sh * 0.95, sh * 0.9, sh * 0.8) }})
+                    );
+                    frag.position.set(
+                        p.x + (Math.random() - 0.5) * 1.5,
+                        -T - Math.random() * (H - T - 2),
+                        p.z + (Math.random() - 0.5) * 1.5
+                    );
+                    
+                    const ang = Math.random() * Math.PI * 2;
+                    const force = 0.1 + Math.random() * 0.15;
+                    frag.userData = {{
+                        vel: new THREE.Vector3(
+                            Math.cos(ang) * force * 0.4,
+                            0.1 + Math.random() * 0.2,
+                            Math.sin(ang) * force * 0.4 + 0.08
+                        ),
+                        rotVel: new THREE.Vector3(Math.random() * 0.08, Math.random() * 0.08, Math.random() * 0.08),
+                        grounded: false
+                    }};
+                    frag.castShadow = true;
+                    scene.add(frag);
+                    fragments.push(frag);
+                    fragmentSizes.push(size);
+                }}
+            }}
+
+            function updatePhysics() {{
+                const groundY = -params.H;
+                const g = -0.007;
+
+                fragments.forEach(f => {{
+                    if (f.userData.grounded) return;
+                    f.position.add(f.userData.vel);
+                    f.userData.vel.y += g;
+                    f.rotation.x += f.userData.rotVel.x;
+                    f.rotation.y += f.userData.rotVel.y;
+                    f.rotation.z += f.userData.rotVel.z;
+                    if (f.position.y < groundY) {{
+                        f.position.y = groundY;
+                        f.userData.vel.y *= -0.08;
+                        f.userData.vel.x *= 0.5;
+                        f.userData.vel.z *= 0.5;
+                        f.userData.rotVel.multiplyScalar(0.5);
+                        if (Math.abs(f.userData.vel.y) < 0.003) f.userData.grounded = true;
+                    }}
+                }});
+            }}
+
+            function updateEffects() {{
+                for (let i = effects.length - 1; i >= 0; i--) {{
+                    const e = effects[i];
+                    e.userData.age++;
+                    if (e.userData.type === 'boom') {{
+                        e.scale.setScalar(1 + e.userData.age * 0.28);
+                        e.material.opacity = Math.max(0, 1 - e.userData.age / 16);
+                        if (e.userData.age > 16) {{ scene.remove(e); effects.splice(i, 1); }}
+                    }} else if (e.userData.type === 'light') {{
+                        e.intensity = 4 * Math.max(0, 1 - e.userData.age / 12);
+                        if (e.userData.age > 12) {{ scene.remove(e); effects.splice(i, 1); }}
+                    }} else if (e.userData.type === 'wave') {{
+                        e.scale.setScalar(1 + e.userData.age * 0.45);
+                        e.material.opacity = Math.max(0, 0.85 - e.userData.age / 20);
+                        if (e.userData.age > 20) {{ scene.remove(e); effects.splice(i, 1); }}
+                    }}
+                }}
+            }}
+
+            function drawCurve() {{
+                const cv = document.getElementById('curve-canvas');
+                const ctx = cv.getContext('2d');
+                const {{ X50, n }} = params;
+                const W = cv.width, H = cv.height;
+                const m = {{ t: 25, r: 40, b: 35, l: 45 }};
+                const pW = W - m.l - m.r, pH = H - m.t - m.b;
+
+                ctx.fillStyle = '#fafafa';
+                ctx.fillRect(0, 0, W, H);
+
+                const xMax = 14;
+                const toX = v => m.l + (v / xMax) * pW;
+                const toY = p => m.t + (1 - p / 100) * pH;
+
+                ctx.strokeStyle = '#e0e0e0';
+                ctx.lineWidth = 1;
+                for (let x = 0; x <= xMax; x += 2) {{
+                    ctx.beginPath();
+                    ctx.moveTo(toX(x), m.t);
+                    ctx.lineTo(toX(x), H - m.b);
+                    ctx.stroke();
+                }}
+                for (let y = 0; y <= 100; y += 20) {{
+                    ctx.beginPath();
+                    ctx.moveTo(m.l, toY(y));
+                    ctx.lineTo(W - m.r, toY(y));
+                    ctx.stroke();
+                }}
+
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(m.l, m.t);
+                ctx.lineTo(m.l, H - m.b);
+                ctx.lineTo(W - m.r, H - m.b);
+                ctx.stroke();
+
+                ctx.fillStyle = '#444';
+                ctx.font = '10px Arial';
+                ctx.textAlign = 'center';
+                for (let x = 0; x <= xMax; x += 2) ctx.fillText(x + '"', toX(x), H - m.b + 12);
+                ctx.textAlign = 'right';
+                for (let y = 0; y <= 100; y += 20) ctx.fillText(y + '%', m.l - 6, toY(y) + 3);
+
+                ctx.fillStyle = '#555';
+                ctx.font = 'bold 10px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('Tamaño (pulgadas)', W / 2, H - 5);
+
+                ctx.setLineDash([5, 3]);
+                ctx.lineWidth = 1.5;
+                ctx.strokeStyle = '#ff9800';
+                ctx.beginPath();
+                ctx.moveTo(m.l, toY(80));
+                ctx.lineTo(W - m.r, toY(80));
+                ctx.stroke();
+                ctx.fillStyle = '#ff9800';
+                ctx.font = 'bold 9px Arial';
+                ctx.textAlign = 'left';
+                ctx.fillText('P80', W - m.r + 2, toY(80) + 3);
+
+                ctx.strokeStyle = '#f44336';
+                ctx.beginPath();
+                ctx.moveTo(m.l, toY(99));
+                ctx.lineTo(W - m.r, toY(99));
+                ctx.stroke();
+                ctx.fillStyle = '#f44336';
+                ctx.fillText('P100', W - m.r + 2, toY(99) + 3);
+                ctx.setLineDash([]);
+
+                function drawRosinRammler(X50, n, color) {{
+                    const Xc = X50 / Math.pow(0.693, 1 / n);
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 2.5;
+                    ctx.beginPath();
+                    for (let i = 0; i <= 200; i++) {{
+                        const sz_cm = (i / 200) * 35;
+                        const sz_in = sz_cm / 2.54;
+                        if (sz_in > xMax) break;
+                        const P = 100 * (1 - Math.exp(-Math.pow(sz_cm / Xc, n)));
+                        const px = toX(sz_in), py = toY(P);
+                        if (i === 0) ctx.moveTo(px, py);
+                        else ctx.lineTo(px, py);
+                    }}
+                    ctx.stroke();
+                }}
+
+                function drawFragmentCurve(sizes, color) {{
+                    if (sizes.length < 10) return;
+                    const sorted = [...sizes].sort((a, b) => a - b);
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([4, 2]);
+                    ctx.beginPath();
+                    let started = false;
+                    sorted.forEach((sz, idx) => {{
+                        const sz_in = sz / 2.54;
+                        if (sz_in > xMax) return;
+                        const P = 100 * (idx + 1) / sorted.length;
+                        const px = toX(sz_in), py = toY(P);
+                        if (!started) {{ ctx.moveTo(px, py); started = true; }}
+                        else ctx.lineTo(px, py);
+                    }});
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }}
+
+                if (showComparison) {{
+                    savedScenarios.forEach(s => {{
+                        drawRosinRammler(s.params.X50, s.params.n, s.color);
+                    }});
+                }}
+
+                drawRosinRammler(X50, n, '#1a1a1a');
+                if (fragmentSizes.length > 10) {{
+                    drawFragmentCurve(fragmentSizes, '#555555');
+                }}
+
+                let legendY = m.t + 8;
+                ctx.font = '9px Arial';
+                ctx.textAlign = 'left';
+                
+                if (showComparison) {{
+                    savedScenarios.forEach((s, i) => {{
+                        ctx.fillStyle = s.color;
+                        ctx.fillRect(m.l + 8, legendY, 15, 2);
+                        ctx.fillText(s.name, m.l + 28, legendY + 3);
+                        legendY += 12;
+                    }});
+                }}
+
+                updateStats();
+            }}
+
+            function updateStats() {{
+                const {{ X50, n }} = params;
+                const Xc = X50 / Math.pow(0.693, 1 / n);
+                const P80_teo = Xc * Math.pow(-Math.log(0.2), 1 / n) / 2.54;
+                const P100_teo = Xc * Math.pow(-Math.log(0.01), 1 / n) / 2.54;
+
+                let html = `
+                    <div class="stat-box">
+                        <div class="stat-title">X50</div>
+                        <div class="stat-value">${{X50.toFixed(1)}} cm</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-title">n</div>
+                        <div class="stat-value">${{n.toFixed(2)}}</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-title">P80 Teórico</div>
+                        <div class="stat-value ${{P80_teo <= 4.5 ? 'stat-ok' : 'stat-bad'}}">${{P80_teo.toFixed(2)}}"</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-title">P100 Teórico</div>
+                        <div class="stat-value ${{P100_teo <= 12 ? 'stat-ok' : 'stat-bad'}}">${{P100_teo.toFixed(1)}}"</div>
+                    </div>
+                `;
+
+                if (fragmentSizes.length > 20) {{
+                    const sorted = [...fragmentSizes].sort((a, b) => a - b);
+                    const P80_sim = sorted[Math.floor(sorted.length * 0.8)] / 2.54;
+                    const P100_sim = sorted[sorted.length - 1] / 2.54;
+                    
+                    html += `
+                        <div class="stat-box" style="grid-column: span 2;">
+                            <div class="stat-title">P80 Simulado</div>
+                            <div class="stat-value ${{P80_sim <= 4.5 ? 'stat-ok' : 'stat-bad'}}">${{P80_sim.toFixed(2)}}"</div>
+                        </div>
+                        <div class="stat-box" style="grid-column: span 2;">
+                            <div class="stat-title">P100 Simulado</div>
+                            <div class="stat-value ${{P100_sim <= 12 ? 'stat-ok' : 'stat-bad'}}">${{P100_sim.toFixed(1)}}"</div>
+                        </div>
+                    `;
+                }}
+
+                document.getElementById('stats-grid').innerHTML = html;
+            }}
+
+            let lastT = 0;
+            function animate(t) {{
+                requestAnimationFrame(animate);
+                const dt = Math.min((t - lastT) / 1000, 0.1);
+                lastT = t;
+                updateSimulation(dt);
+                renderer.render(scene, camera);
+            }}
+
+            init();
+        </script>
+    </body>
+    </html>
+    '''
+    return html_code
+
+# Renderizar el simulador
+simulador_html = generar_simulador_html(escenarios_simulacion, esc_actual, mostrar_comparativa)
+components.html(simulador_html, height=550, scrolling=False)
+
+# Explicación del simulador
+with st.expander("📖 ¿Cómo usar el simulador?", expanded=False):
+    st.markdown("""
+    ### Instrucciones del Simulador 3D
+    
+    **Controles:**
+    - 🖱️ **Arrastrar con el mouse**: Rotar la vista 3D
+    - 🔄 **Scroll**: Zoom in/out
+    - 🔥 **DETONAR**: Inicia la secuencia de detonación
+    - 🔄 **Reset**: Reinicia la simulación
+    - ⚡ **Velocidad**: Ajusta la velocidad de la simulación
+    
+    **Visualización 3D:**
+    - 🔵 **Cyan**: Taco (material inerte)
+    - 🔴 **Rojo**: Carga explosiva (ANFO)
+    - 🟡 **Amarillo**: Detonador/Booster
+    - 🟢 **Verde**: Pasadura (sobreperforación)
+    
+    **Curva Granulométrica:**
+    - **Línea continua**: Curva teórica Rosin-Rammler
+    - **Línea punteada**: Fragmentos simulados
+    - **P80**: 80% del material pasa este tamaño
+    - **P100**: Tamaño máximo de fragmentos
+    
+    **Modelo Kuz-Ram:**
+    ```
+    P(x) = 100 × [1 - exp(-(x/Xc)^n)]
+    Xc = X50 / 0.693^(1/n)
+    ```
+    
+    Los fragmentos simulados siguen esta distribución pero con variabilidad estadística,
+    similar a lo que ocurre en la práctica real debido a la heterogeneidad de la roca.
+    """)
 
 # ===== ANÁLISIS Y SIMULACIÓN DE TACO INTERMEDIO =====
 st.markdown("---")
