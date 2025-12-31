@@ -1972,16 +1972,27 @@ with col_p3:
     peso_p100 = st.slider("Reducir P100", 0.0, 1.0, 0.25, 0.05, help="Mayor peso = prioriza menos sobretamaño")
 
 # ============================================
-# BOTÓN DE CÁLCULO
+# BOTÓN DE CÁLCULO CON SESSION STATE
 # ============================================
 st.markdown("---")
+
+# Inicializar session state para los resultados
+if 'resultados_calculados' not in st.session_state:
+    st.session_state.resultados_calculados = False
+    st.session_state.params_teoricos = None
+    st.session_state.params_multiobj = None
+    st.session_state.params_minmetros = None
 
 col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
 with col_btn2:
     calcular_btn = st.button("🔄 CALCULAR MALLA ÓPTIMA", use_container_width=True, type="primary")
 
-# Siempre calcular (para mostrar resultados reactivos)
-# El botón sirve como confirmación visual y para forzar recálculo
+# Ejecutar cálculos cuando se presiona el botón
+if calcular_btn:
+    st.session_state.resultados_calculados = True
+    st.session_state.ultimo_ucs = ucs_input
+    st.session_state.ultimo_diametro = diametro_input
+    st.session_state.ultimo_explosivo = explosivo_input
 
 # Normalizar pesos
 suma_pesos = peso_metros + peso_p80 + peso_p100
@@ -1989,7 +2000,7 @@ peso_metros_norm = peso_metros / suma_pesos if suma_pesos > 0 else 1/3
 peso_p80_norm = peso_p80 / suma_pesos if suma_pesos > 0 else 1/3
 peso_p100_norm = peso_p100 / suma_pesos if suma_pesos > 0 else 1/3
 
-# ===== CÁLCULOS =====
+# ===== CÁLCULOS (siempre ejecutar para tener datos) =====
 params_teoricos = calcular_parametros_teoricos_enaex(
     ucs=ucs_input,
     densidad_explosivo=densidad_exp,
@@ -2026,6 +2037,19 @@ params_multiobj = calcular_malla_optimizada_multiobjetivo(
     peso_p80=peso_p80_norm,
     peso_p100=peso_p100_norm
 )
+
+# Guardar en session_state cuando se presiona el botón
+if calcular_btn:
+    st.session_state.params_teoricos = params_teoricos
+    st.session_state.params_multiobj = params_multiobj
+    st.session_state.params_minmetros = params_minmetros
+    st.toast("✅ Cálculos actualizados correctamente", icon="✅")
+    st.balloons()
+
+# Mostrar mensaje si no se ha calculado nunca
+if not st.session_state.resultados_calculados:
+    st.info("👆 Presiona el botón **CALCULAR MALLA ÓPTIMA** para confirmar los parámetros y generar las recomendaciones.")
+    st.stop()
 
 # Calcular taco intermedio teórico (si aplica)
 longitud_carga = altura_banco_est - params_teoricos['taco_optimo'] - params_teoricos['pasadura_optima']
@@ -2740,7 +2764,9 @@ def generar_simulador_montecarlo_html(ucs, burden, espaciamiento, taco, altura, 
             B: {burden}, S: {espaciamiento}, T: {taco}, H: {altura}, J: {pasadura},
             d: {diametro_mm}, X50: {x50_estimado}, n: {n_uniformidad},
             th: {tp_ms}, tr: {tf_ms},
-            dobleTaco: {'true' if usar_doble_taco else 'false'}, Ti: 2.0, TiPos: 8
+            dobleTaco: {'true' if usar_doble_taco else 'false'}, 
+            Ti: 2.0, 
+            TiPos: {altura / 2:.1f}
         }};
 
         function init() {{
@@ -2758,19 +2784,34 @@ def generar_simulador_montecarlo_html(ucs, burden, espaciamiento, taco, altura, 
             const height = container.clientHeight || 400;
             
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x455a64);
+            scene.background = new THREE.Color(0x37474f);
 
             camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 500);
 
-            renderer = new THREE.WebGLRenderer({{ antialias: true }});
+            renderer = new THREE.WebGLRenderer({{ antialias: true, alpha: true }});
             renderer.setSize(width, height);
             renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             container.insertBefore(renderer.domElement, container.firstChild);
 
-            scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-            const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+            // Iluminación mejorada
+            scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+            
+            const sun = new THREE.DirectionalLight(0xffffff, 1.0);
             sun.position.set(50, 80, 50);
+            sun.castShadow = true;
+            sun.shadow.mapSize.width = 1024;
+            sun.shadow.mapSize.height = 1024;
             scene.add(sun);
+            
+            // Luz de relleno para detalles
+            const fillLight = new THREE.DirectionalLight(0x8ec5fc, 0.3);
+            fillLight.position.set(-30, 20, -30);
+            scene.add(fillLight);
+            
+            // Hemisferio para ambiente natural
+            const hemi = new THREE.HemisphereLight(0x87ceeb, 0x5a4a3a, 0.4);
+            scene.add(hemi);
 
             setupCameraControls();
             createScene();
@@ -2888,34 +2929,54 @@ def generar_simulador_montecarlo_html(ucs, burden, espaciamiento, taco, altura, 
         }}
 
         function createScene() {{
-            while(scene.children.length > 3) scene.remove(scene.children[scene.children.length-1]);
+            // Limpiar escena (mantener luces: 4 objetos de iluminación)
+            while(scene.children.length > 4) scene.remove(scene.children[scene.children.length-1]);
             pozos = []; waveObjects = []; fragmentObjects = [];
             detonatedCount = 0;
 
             const {{ B, S, T, H, J }} = params;
             const L = H + J;
 
-            // Piso
+            // Piso del banco (nivel inferior)
             const floor = new THREE.Mesh(
-                new THREE.PlaneGeometry(80, 60),
-                new THREE.MeshLambertMaterial({{ color: 0x8d7b68, transparent: true, opacity: 0.3 }})
+                new THREE.PlaneGeometry(100, 80),
+                new THREE.MeshLambertMaterial({{ color: 0x6d5d4b, side: THREE.DoubleSide }})
             );
             floor.rotation.x = -Math.PI / 2;
-            floor.position.set(S * 1.5, -H, B * 1.5);
+            floor.position.set(S * 1.5, -H - 0.1, B * 1.5);
+            floor.receiveShadow = true;
             scene.add(floor);
 
-            // Grid
-            const grid = new THREE.GridHelper(50, 25, 0x888, 0x666);
-            grid.position.set(S * 1.5, 0.02, B * 1.5);
+            // Superficie del banco (nivel superior)
+            const surface = new THREE.Mesh(
+                new THREE.PlaneGeometry(S * (COLS + 2), B * (ROWS + 2)),
+                new THREE.MeshLambertMaterial({{ color: 0xa89078, side: THREE.DoubleSide }})
+            );
+            surface.rotation.x = -Math.PI / 2;
+            surface.position.set(S * 1.5, 0.01, B * 1.5);
+            surface.receiveShadow = true;
+            scene.add(surface);
+
+            // Grid en superficie
+            const grid = new THREE.GridHelper(50, 25, 0x666666, 0x444444);
+            grid.position.set(S * 1.5, 0.05, B * 1.5);
             scene.add(grid);
 
-            // Banco transparente
+            // Banco como caja semi-transparente
             const banco = new THREE.Mesh(
                 new THREE.BoxGeometry(S * (COLS + 0.5), H, B * (ROWS + 0.5)),
-                new THREE.MeshLambertMaterial({{ color: 0x78909c, transparent: true, opacity: 0.08 }})
+                new THREE.MeshLambertMaterial({{ color: 0x8d7b68, transparent: true, opacity: 0.15 }})
             );
             banco.position.set(S * 1.5 - S/2, -H/2, B * 1.5 - B/2);
             scene.add(banco);
+            
+            // Contorno del banco (wireframe)
+            const bancoWire = new THREE.LineSegments(
+                new THREE.EdgesGeometry(new THREE.BoxGeometry(S * (COLS + 0.5), H, B * (ROWS + 0.5))),
+                new THREE.LineBasicMaterial({{ color: 0x555555 }})
+            );
+            bancoWire.position.copy(banco.position);
+            scene.add(bancoWire);
 
             // Pozos
             let id = 1;
@@ -3130,21 +3191,33 @@ def generar_simulador_montecarlo_html(ucs, burden, espaciamiento, taco, altura, 
         }}
 
         function generateVisualFragments() {{
-            const {{ X50, n }} = params;
+            const {{ X50, n, B, S, H, T }} = params;
             const Xc = X50 / Math.pow(0.693, 1 / n);
             currentSimFragments = [];
             
+            // Calcular cantidad de fragmentos basado en volumen de roca
+            const volPorPozo = B * S * H;
+            const numFrags = Math.min(40, Math.max(18, Math.floor(volPorPozo / 60)));
+            
             pozos.forEach(p => {{
                 const frags = [];
-                for (let i = 0; i < 15; i++) {{
+                for (let i = 0; i < numFrags; i++) {{
                     const u = Math.random() * 0.99;
                     let size = Xc * Math.pow(-Math.log(1 - u), 1 / n);
-                    if (params.dobleTaco && size > Xc * 2) size *= 0.8;
+                    
+                    // Doble taco reduce fragmentos grandes
+                    if (params.dobleTaco && size > Xc * 1.8) {{
+                        size *= 0.75;
+                    }}
+                    
+                    // UCS alta = fragmentos más angulares y resistentes
+                    const ucsEffect = Math.min(1.2, params.UCS / 120);
+                    
                     frags.push({{
-                        visualSize: Math.max(0.1, Math.min(0.8, size / 15)),
+                        visualSize: Math.max(0.08, Math.min(1.0, size / 12)),
                         angle: Math.random() * Math.PI * 2,
-                        speed: 0.05 + Math.random() * 0.08,
-                        ySpeed: 0.1 + Math.random() * 0.15
+                        speed: (0.06 + Math.random() * 0.10) * ucsEffect,
+                        ySpeed: (0.12 + Math.random() * 0.18) / ucsEffect
                     }});
                 }}
                 currentSimFragments.push({{ fragments: frags }});
@@ -3210,39 +3283,124 @@ def generar_simulador_montecarlo_html(ucs, burden, espaciamiento, taco, altura, 
             
             if (p.apdSphere) p.apdSphere.visible = false;
             
-            const {{ H, T, B, S }} = params;
+            const {{ H, T, B, S, dobleTaco, Ti, TiPos }} = params;
             const apdY = p.apdY;
             
             if (showWaves) {{
+                // Esfera de explosión principal (onda 3D)
                 const sphere = new THREE.Mesh(
-                    new THREE.SphereGeometry(1, 24, 18),
-                    new THREE.MeshBasicMaterial({{ color: 0xff6600, transparent: true, opacity: 0.6, side: THREE.DoubleSide }})
+                    new THREE.SphereGeometry(1, 32, 24),
+                    new THREE.MeshBasicMaterial({{ color: 0xff5500, transparent: true, opacity: 0.7, side: THREE.DoubleSide }})
                 );
                 sphere.position.set(p.x, apdY, p.z);
-                sphere.userData = {{ type: 'sphere', maxR: Math.max(B, S) * 1.1, speed: 0.4, r: 0.6 }};
+                sphere.userData = {{ type: 'sphere', maxR: Math.max(B, S) * 1.2, speed: 0.5, r: 0.8 }};
                 scene.add(sphere);
                 waveObjects.push(sphere);
                 
-                const light = new THREE.PointLight(0xff4400, 4, 25);
+                // Wireframe de la esfera (más visible)
+                const wireGeom = new THREE.SphereGeometry(1, 16, 12);
+                const wireMat = new THREE.MeshBasicMaterial({{ 
+                    color: 0xffaa00, 
+                    wireframe: true,
+                    transparent: true,
+                    opacity: 0.9
+                }});
+                const wire = new THREE.Mesh(wireGeom, wireMat);
+                wire.position.set(p.x, apdY, p.z);
+                wire.userData = {{ type: 'wire', maxR: Math.max(B, S) * 1.3, speed: 0.55, r: 0.5 }};
+                scene.add(wire);
+                waveObjects.push(wire);
+                
+                // Anillos de onda en superficie
+                for (let i = 0; i < 2; i++) {{
+                    setTimeout(() => {{
+                        const ring = new THREE.Mesh(
+                            new THREE.RingGeometry(0.5, 0.9, 32),
+                            new THREE.MeshBasicMaterial({{ color: 0xffaa00, transparent: true, opacity: 0.85, side: THREE.DoubleSide }})
+                        );
+                        ring.rotation.x = -Math.PI / 2;
+                        ring.position.set(p.x, 0.15, p.z);
+                        ring.userData = {{ type: 'ring', age: 0, maxAge: 25 }};
+                        scene.add(ring);
+                        waveObjects.push(ring);
+                    }}, i * 40);
+                }}
+                
+                // Onda vertical que sube por la columna
+                const cylGeom = new THREE.CylinderGeometry(0.5, 0.5, 1, 16, 1, true);
+                const cylMat = new THREE.MeshBasicMaterial({{ 
+                    color: 0xff4400, 
+                    transparent: true, 
+                    opacity: 0.75,
+                    side: THREE.DoubleSide
+                }});
+                const cyl = new THREE.Mesh(cylGeom, cylMat);
+                cyl.position.set(p.x, apdY, p.z);
+                cyl.userData = {{ type: 'rising', targetY: -T + 1, speed: 0.7, maxScale: 3.5 }};
+                scene.add(cyl);
+                waveObjects.push(cyl);
+                
+                // Si doble taco, segunda onda desde taco intermedio
+                if (dobleTaco) {{
+                    setTimeout(() => {{
+                        const sphere2 = new THREE.Mesh(
+                            new THREE.SphereGeometry(0.8, 20, 16),
+                            new THREE.MeshBasicMaterial({{ color: 0xff00ff, transparent: true, opacity: 0.6, side: THREE.DoubleSide }})
+                        );
+                        sphere2.position.set(p.x, -TiPos, p.z);
+                        sphere2.userData = {{ type: 'sphere', maxR: B * 0.9, speed: 0.4, r: 0.5 }};
+                        scene.add(sphere2);
+                        waveObjects.push(sphere2);
+                    }}, 60);
+                }}
+                
+                // Luz brillante
+                const light = new THREE.PointLight(0xff4400, 5, 30);
                 light.position.set(p.x, apdY + 1, p.z);
-                light.userData = {{ type: 'light', age: 0, maxAge: 15 }};
+                light.userData = {{ type: 'light', age: 0, maxAge: 18 }};
                 scene.add(light);
                 waveObjects.push(light);
             }}
             
+            // Fragmentos (más cantidad y mejor física)
             if (showFragments && currentSimFragments[idx]) {{
                 currentSimFragments[idx].fragments.forEach(fd => {{
                     const geom = new THREE.DodecahedronGeometry(fd.visualSize, 0);
-                    const shade = 0.4 + Math.random() * 0.3;
+                    
+                    // Deformar fragmentos para que se vean más naturales
+                    const pos = geom.attributes.position;
+                    for (let i = 0; i < pos.count; i++) {{
+                        const f = 0.65 + Math.random() * 0.7;
+                        pos.setXYZ(i, pos.getX(i) * f, pos.getY(i) * f, pos.getZ(i) * f);
+                    }}
+                    geom.computeVertexNormals();
+                    
+                    const shade = 0.45 + Math.random() * 0.25;
                     const frag = new THREE.Mesh(geom, new THREE.MeshLambertMaterial({{ 
-                        color: new THREE.Color(shade, shade * 0.95, shade * 0.9) 
+                        color: new THREE.Color(shade * 0.95, shade * 0.9, shade * 0.85) 
                     }}));
-                    frag.position.set(p.x + (Math.random()-0.5)*1.2, -T - Math.random()*(H-T-1), p.z + (Math.random()-0.5)*1.2);
+                    frag.position.set(
+                        p.x + (Math.random()-0.5) * 1.5, 
+                        -T - Math.random() * (H - T - 2), 
+                        p.z + (Math.random()-0.5) * 1.5
+                    );
+                    
+                    const ang = Math.random() * Math.PI * 2;
+                    const force = 0.08 + Math.random() * 0.12;
                     frag.userData = {{
-                        vel: new THREE.Vector3(Math.cos(fd.angle)*fd.speed*0.4, fd.ySpeed, Math.sin(fd.angle)*fd.speed*0.4),
-                        rotVel: new THREE.Vector3((Math.random()-0.5)*0.1, (Math.random()-0.5)*0.1, (Math.random()-0.5)*0.1),
+                        vel: new THREE.Vector3(
+                            Math.cos(ang) * force * 0.5, 
+                            fd.ySpeed * 1.2, 
+                            Math.sin(ang) * force * 0.5 + 0.06
+                        ),
+                        rotVel: new THREE.Vector3(
+                            (Math.random()-0.5) * 0.12, 
+                            (Math.random()-0.5) * 0.12, 
+                            (Math.random()-0.5) * 0.12
+                        ),
                         grounded: false
                     }};
+                    frag.castShadow = true;
                     scene.add(frag);
                     fragmentObjects.push(frag);
                 }});
@@ -3258,14 +3416,43 @@ def generar_simulador_montecarlo_html(ucs, burden, espaciamiento, taco, altura, 
                     ud.r += ud.speed;
                     if (ud.r < ud.maxR) {{
                         obj.scale.setScalar(ud.r);
-                        obj.material.opacity = 0.6 * (1 - ud.r / ud.maxR);
+                        obj.material.opacity = 0.7 * (1 - ud.r / ud.maxR);
+                    }} else {{
+                        scene.remove(obj);
+                        waveObjects.splice(i, 1);
+                    }}
+                }} else if (ud.type === 'wire') {{
+                    ud.r += ud.speed;
+                    if (ud.r < ud.maxR) {{
+                        obj.scale.setScalar(ud.r);
+                        obj.material.opacity = 0.9 * (1 - ud.r / ud.maxR);
+                    }} else {{
+                        scene.remove(obj);
+                        waveObjects.splice(i, 1);
+                    }}
+                }} else if (ud.type === 'ring') {{
+                    ud.age++;
+                    const progress = ud.age / ud.maxAge;
+                    const scale = 1 + progress * 10;
+                    obj.scale.set(scale, scale, 1);
+                    obj.material.opacity = 0.85 * (1 - progress);
+                    if (ud.age >= ud.maxAge) {{
+                        scene.remove(obj);
+                        waveObjects.splice(i, 1);
+                    }}
+                }} else if (ud.type === 'rising') {{
+                    if (obj.position.y < ud.targetY) {{
+                        obj.position.y += ud.speed;
+                        obj.scale.x *= 1.06;
+                        obj.scale.z *= 1.06;
+                        obj.material.opacity *= 0.97;
                     }} else {{
                         scene.remove(obj);
                         waveObjects.splice(i, 1);
                     }}
                 }} else if (ud.type === 'light') {{
                     ud.age++;
-                    obj.intensity = 4 * (1 - ud.age / ud.maxAge);
+                    obj.intensity = 5 * (1 - ud.age / ud.maxAge);
                     if (ud.age > ud.maxAge) {{
                         scene.remove(obj);
                         waveObjects.splice(i, 1);
@@ -3276,17 +3463,40 @@ def generar_simulador_montecarlo_html(ucs, burden, espaciamiento, taco, altura, 
 
         function updateFragments() {{
             const groundY = -params.H;
+            const gravity = 0.012;
+            const airResist = 0.995;
+            
             fragmentObjects.forEach(f => {{
                 if (f.userData.grounded) return;
+                
+                // Aplicar velocidad
                 f.position.add(f.userData.vel);
-                f.userData.vel.y -= 0.008;
+                
+                // Gravedad y resistencia del aire
+                f.userData.vel.y -= gravity;
+                f.userData.vel.x *= airResist;
+                f.userData.vel.z *= airResist;
+                
+                // Rotación activa
                 f.rotation.x += f.userData.rotVel.x;
                 f.rotation.y += f.userData.rotVel.y;
-                if (f.position.y < groundY + 0.08) {{
-                    f.position.y = groundY + 0.08;
-                    f.userData.vel.multiplyScalar(0.25);
-                    f.userData.vel.y *= -0.08;
-                    if (Math.abs(f.userData.vel.y) < 0.006) f.userData.grounded = true;
+                f.rotation.z += f.userData.rotVel.z;
+                
+                // Colisión con el suelo
+                if (f.position.y < groundY + 0.12) {{
+                    f.position.y = groundY + 0.12;
+                    
+                    // Rebote con fricción
+                    if (f.userData.vel.y < -0.01) {{
+                        f.userData.vel.y *= -0.2;
+                        f.userData.vel.x *= 0.6;
+                        f.userData.vel.z *= 0.6;
+                        f.userData.rotVel.multiplyScalar(0.5);
+                    }} else {{
+                        f.userData.vel.set(0, 0, 0);
+                        f.userData.rotVel.multiplyScalar(0.1);
+                        f.userData.grounded = true;
+                    }}
                 }}
             }});
         }}
