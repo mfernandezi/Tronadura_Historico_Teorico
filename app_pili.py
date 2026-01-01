@@ -135,6 +135,440 @@ def recomendar_explosivo_enaex(ucs):
         return 'Pirex S Plus / Energex 70 Plus'
 
 
+# =============================================================================
+# MODELO PILIX v3.6 - FUNCIONES ROBUSTAS DE FRAGMENTACIÓN
+# =============================================================================
+
+def calcular_indice_lilly(ucs, rqd=70):
+    """
+    Calcula el Índice de Lilly (Blastability Index) para estimar Factor de Roca A.
+    
+    Basado en: Lilly, P.A. (1986) - "An Empirical Method of Assessing Rock Mass Blastability"
+    
+    Fórmulas:
+    ---------
+    SGI = 25×SG - 50
+    HP = 0.05×UCS
+    BI = 0.5 × (RMD + JPS + JPO + SGI + HP)
+    A = 0.12 × BI
+    
+    Parámetros:
+    -----------
+    - ucs: Resistencia a compresión uniaxial (MPa)
+    - rqd: Rock Quality Designation (%)
+    
+    Retorna:
+    --------
+    - Diccionario con todos los parámetros de Lilly y el Factor A
+    """
+    if pd.isna(ucs):
+        ucs = 100
+    if pd.isna(rqd):
+        rqd = 70
+    
+    # RMD (Rock Mass Description): basado en RQD
+    if rqd > 75:
+        RMD = 50  # Masivo
+    elif rqd >= 50:
+        RMD = 20  # Bloques
+    else:
+        RMD = 10  # Quebradizo
+    
+    # JPS (Joint Plane Spacing): basado en RQD
+    if rqd > 80:
+        JPS = 50  # Amplio
+    elif rqd >= 50:
+        JPS = 20  # Intermedio
+    else:
+        JPS = 10  # Cercano
+    
+    # JPO (Joint Plane Orientation): valor promedio
+    JPO = 25  # Orientación intermedia
+    
+    # SG (Densidad): estimación basada en UCS
+    SG = min(2.9, max(2.4, 2.5 + (ucs / 400)))
+    
+    # Tensile (σt): relación típica σt ≈ UCS/10
+    tensile = ucs / 10
+    
+    # Cálculos Lilly
+    SGI = 25 * SG - 50
+    HP = 0.05 * ucs
+    BI = 0.5 * (RMD + JPS + JPO + SGI + HP)
+    A = 0.12 * BI
+    
+    # Limitar A a rango típico
+    A = max(3.0, min(13.0, A))
+    
+    return {
+        'RMD': RMD,
+        'JPS': JPS,
+        'JPO': JPO,
+        'SG': round(SG, 2),
+        'tensile': round(tensile, 1),
+        'SGI': round(SGI, 1),
+        'HP': round(HP, 1),
+        'BI': round(BI, 1),
+        'A': round(A, 2)
+    }
+
+
+def calcular_n_cunningham(B, S, d_pulg, Lc, H, W=0.5):
+    """
+    Calcula el índice de uniformidad n usando la fórmula de Cunningham corregida.
+    
+    IMPORTANTE: El diámetro debe estar en MILÍMETROS en la fórmula.
+    
+    Fórmula:
+    --------
+    n = (2.2 - 14×B/D_mm) × √[(1+S/B)/2] × (1-W/B) × (Lc/H)
+    
+    Parámetros:
+    -----------
+    - B: Burden (m)
+    - S: Espaciamiento (m)
+    - d_pulg: Diámetro de perforación (pulgadas)
+    - Lc: Longitud de carga (m)
+    - H: Altura de banco (m)
+    - W: Desviación estándar de perforación (m), típico 0.5m
+    
+    Retorna:
+    --------
+    - Índice de uniformidad n
+    """
+    # Convertir diámetro a milímetros (CRÍTICO!)
+    d_mm = d_pulg * 25.4
+    
+    # Calcular cada término
+    term1 = 2.2 - 14 * (B / d_mm)
+    term2 = np.sqrt((1 + S / B) / 2)
+    term3 = 1 - W / B
+    term4 = Lc / H
+    
+    n = term1 * term2 * term3 * term4
+    
+    # Limitar a rango válido
+    n = max(0.5, min(2.5, n))
+    
+    return round(n, 3)
+
+
+def estimar_Kx_Kn(ucs, rqd=70):
+    """
+    Estima factores de calibración Kx y Kn desde UCS y RQD.
+    
+    Basado en: Mundaca et al. (2015) - Calibración Kuz-Ram UGT-4 Chuquicamata
+    
+    Fórmulas empíricas:
+    -------------------
+    Kx ≈ 0.25 + 0.75 × (UCS/200) × (RQD/100)
+    Kn ≈ 0.95 + 0.10 × (RQD/100)
+    
+    Interpretación:
+    ---------------
+    - Kx < 1: Fragmentación real más fina que predicción teórica
+    - Kx > 1: Fragmentación real más gruesa que predicción teórica
+    - Kn < 1: Distribución menos uniforme
+    - Kn > 1: Distribución más uniforme
+    
+    Referencia UGT-4 Chuquicamata: Kx=0.31, Kn=1.04 (calibrado con Split)
+    
+    Parámetros:
+    -----------
+    - ucs: Resistencia a compresión uniaxial (MPa)
+    - rqd: Rock Quality Designation (%)
+    
+    Retorna:
+    --------
+    - Tupla (Kx, Kn)
+    """
+    if pd.isna(ucs):
+        ucs = 100
+    if pd.isna(rqd):
+        rqd = 70
+    
+    Kx = max(0.2, min(1.5, 0.25 + 0.75 * (ucs / 200) * (rqd / 100)))
+    Kn = max(0.85, min(1.15, 0.95 + 0.10 * (rqd / 100)))
+    
+    return round(Kx, 3), round(Kn, 3)
+
+
+def calcular_zonas_dano(d_pulg, densidad_exp, vod, ucs, tensile=None):
+    """
+    Calcula zonas de daño usando modelo Holmberg-Persson.
+    
+    Fórmulas:
+    ---------
+    Pd = ρe × VOD² / 4  (Presión de detonación, GPa)
+    rc = r0 × (Pd/σc)^0.6  (Radio de trituración)
+    rf = r0 × (Pd/σt)^0.45  (Radio de fractura)
+    rd = rf × 2.0  (Radio de daño)
+    
+    Parámetros:
+    -----------
+    - d_pulg: Diámetro de perforación (pulgadas)
+    - densidad_exp: Densidad del explosivo (g/cc)
+    - vod: Velocidad de detonación (m/s)
+    - ucs: Resistencia a compresión uniaxial (MPa)
+    - tensile: Resistencia a tracción (MPa), si None se estima como UCS/10
+    
+    Retorna:
+    --------
+    - Diccionario con Pd, r0, rc, rf, rd
+    """
+    d_m = d_pulg * 0.0254  # metros
+    r0 = d_m / 2
+    
+    # Presión de detonación (GPa)
+    rho_e = densidad_exp * 1000  # kg/m³
+    Pd = (rho_e * (vod ** 2)) / 4 / 1e9
+    
+    # Resistencias en GPa
+    sigma_c = ucs / 1000
+    sigma_t = (tensile if tensile else ucs / 10) / 1000
+    
+    # Radios de daño
+    rc = r0 * ((Pd / sigma_c) ** 0.6)
+    rc = max(rc, r0 * 3)
+    
+    rf = r0 * ((Pd / sigma_t) ** 0.45)
+    rf = max(rf, rc * 1.5)
+    
+    rd = rf * 2.0
+    
+    return {
+        'Pd': round(Pd, 2),
+        'r0': round(r0, 3),
+        'rc': round(rc, 2),
+        'rf': round(rf, 2),
+        'rd': round(rd, 2)
+    }
+
+
+def calcular_X50_kuzram_calibrado(A, Kx, V0, Q, RWS=100):
+    """
+    Calcula X50 usando modelo Kuz-Ram con factor de calibración Kx.
+    
+    Fórmula completa:
+    -----------------
+    X50 = Kx × A × (V0/Q)^0.8 × Q^(1/6) × (1.15/Er)^(19/30)
+    
+    Donde:
+    - Kx: Factor de calibración (Mundaca)
+    - A: Factor de roca (Lilly)
+    - V0: Volumen de roca por pozo (m³)
+    - Q: Masa de explosivo por pozo (kg)
+    - Er: RWS/100 (ANFO=1.0)
+    
+    Parámetros:
+    -----------
+    - A: Factor de roca (3-13)
+    - Kx: Factor de calibración (0.2-1.5)
+    - V0: Volumen de roca por pozo (m³)
+    - Q: Masa de explosivo por pozo (kg)
+    - RWS: Relative Weight Strength (ANFO=100)
+    
+    Retorna:
+    --------
+    - X50 en centímetros
+    """
+    Er = RWS / 100
+    
+    X50_cm = Kx * A * ((V0 / Q) ** 0.8) * (Q ** (1/6)) * ((1.15 / Er) ** (19/30))
+    
+    # Limitar a rango físicamente razonable
+    X50_cm = max(3, min(60, X50_cm))
+    
+    return round(X50_cm, 2)
+
+
+def calcular_percentiles_rosin_rammler(X50, n):
+    """
+    Calcula percentiles usando distribución Rosin-Rammler.
+    
+    Fórmulas:
+    ---------
+    Xc = X50 / (ln2)^(1/n)
+    P(x) = 1 - exp[-(x/Xc)^n]
+    Px = Xc × [-ln(1-P/100)]^(1/n)
+    
+    Parámetros:
+    -----------
+    - X50: Tamaño medio de fragmentación (cm)
+    - n: Índice de uniformidad
+    
+    Retorna:
+    --------
+    - Diccionario con Xc, P10, P25, P50, P80, P95, P100 (en pulgadas)
+    """
+    # Xc en cm
+    Xc = X50 / (0.693 ** (1/n))
+    
+    # Función para calcular percentil
+    def percentil(p_frac):
+        return Xc * ((-np.log(1 - p_frac)) ** (1/n))
+    
+    # Calcular percentiles y convertir a pulgadas
+    cm_to_in = 1 / 2.54
+    
+    return {
+        'Xc': round(Xc * cm_to_in, 2),
+        'P10': round(percentil(0.10) * cm_to_in, 2),
+        'P25': round(percentil(0.25) * cm_to_in, 2),
+        'P50': round(X50 * cm_to_in, 2),
+        'P80': round(percentil(0.80) * cm_to_in, 2),
+        'P95': round(percentil(0.95) * cm_to_in, 2),
+        'P100': round(percentil(0.99) * cm_to_in, 2)
+    }
+
+
+def calcular_fragmentacion_pilix(B, S, T, H, J, d_pulg, ucs, rqd=70, 
+                                  densidad_exp=1.2, vod=4500, RWS=100,
+                                  Kx=None, Kn=None, usar_lilly=True,
+                                  doble_taco=False, Ti=2.0, Ti_pos=8.0, eta_alpha=0.12):
+    """
+    Modelo completo de fragmentación PILIX v3.6.
+    
+    Integra:
+    - Índice de Lilly para Factor A
+    - Kuz-Ram con calibración Kx
+    - Cunningham para índice n
+    - Calibración Kn
+    - Modelo doble taco con 3 APDs
+    - Rosin-Rammler para percentiles
+    
+    Parámetros:
+    -----------
+    - B, S, T, H, J: Geometría (m)
+    - d_pulg: Diámetro (pulgadas)
+    - ucs: Resistencia UCS (MPa)
+    - rqd: Rock Quality Designation (%)
+    - densidad_exp: Densidad explosivo (g/cc)
+    - vod: Velocidad detonación (m/s)
+    - RWS: Relative Weight Strength (ANFO=100)
+    - Kx, Kn: Factores de calibración (si None, se estiman)
+    - usar_lilly: Si True, calcula A con Lilly; si False, usa A=19.9
+    - doble_taco: Activar modelo doble taco
+    - Ti: Altura taco intermedio (m)
+    - Ti_pos: Posición taco intermedio desde superficie (m)
+    - eta_alpha: Factor alpha para distribución (0.10-0.15)
+    
+    Retorna:
+    --------
+    - Diccionario completo con todos los resultados
+    """
+    # 1. Calcular parámetros de Lilly
+    lilly = calcular_indice_lilly(ucs, rqd)
+    A = lilly['A'] if usar_lilly else 19.9
+    
+    # 2. Estimar Kx/Kn si no se proporcionan
+    if Kx is None or Kn is None:
+        Kx_est, Kn_est = estimar_Kx_Kn(ucs, rqd)
+        Kx = Kx if Kx is not None else Kx_est
+        Kn = Kn if Kn is not None else Kn_est
+    
+    # 3. Calcular geometría y carga
+    L = H + J
+    d_m = d_pulg * 0.0254
+    area_pozo = np.pi * (d_m / 2) ** 2
+    
+    if doble_taco:
+        # Modelo doble taco
+        Lc1 = max(0.5, Ti_pos - T)  # Carga superior
+        Lc2 = max(0.5, L - T - Lc1 - Ti - J)  # Carga inferior
+        Lc_total = Lc1 + Lc2
+        Q = Lc_total * area_pozo * densidad_exp * 1000
+        
+        # Factor de distribución η
+        balance = 1 - abs(Lc1 - Lc2) / (Lc1 + Lc2)
+        eta_dist = 1 + eta_alpha * balance
+    else:
+        Lc_total = L - T - J
+        Q = Lc_total * area_pozo * densidad_exp * 1000
+        eta_dist = 1.0
+        Lc1 = Lc_total
+        Lc2 = 0
+    
+    # 4. Calcular volumen
+    V0 = B * S * H
+    
+    # 5. Calcular n de Cunningham
+    n_calc = calcular_n_cunningham(B, S, d_pulg, Lc_total, H)
+    n_adj = n_calc * Kn
+    
+    # 6. Aplicar mejora por doble taco
+    if doble_taco:
+        beta = 0.5
+        n_eff = n_adj * (1 + beta * (eta_dist - 1))
+    else:
+        n_eff = n_adj
+    
+    n_eff = max(0.5, min(2.5, n_eff))
+    
+    # 7. Calcular X50 con Kuz-Ram calibrado
+    X50_cm = calcular_X50_kuzram_calibrado(A, Kx, V0, Q, RWS)
+    
+    # 8. Aplicar factor de distribución si doble taco
+    if doble_taco:
+        X50_cm = X50_cm / eta_dist
+    
+    # 9. Calcular percentiles
+    percentiles = calcular_percentiles_rosin_rammler(X50_cm, n_eff)
+    
+    # 10. Reducir P100 si doble taco
+    if doble_taco:
+        gamma = 0.20
+        T_total = T + Ti
+        reduccion = 1 - gamma * (Ti / T_total)
+        percentiles['P100'] = round(percentiles['P100'] * reduccion, 2)
+    
+    # 11. Calcular zonas de daño
+    zonas = calcular_zonas_dano(d_pulg, densidad_exp, vod, ucs, lilly['tensile'])
+    
+    # 12. Calcular métricas adicionales
+    metros_por_ha = (10000 / (B * S)) * H
+    FC = Q / V0  # Factor de carga
+    
+    return {
+        # Parámetros Lilly
+        'lilly': lilly,
+        'A_usado': A,
+        'usar_lilly': usar_lilly,
+        
+        # Calibración
+        'Kx': Kx,
+        'Kn': Kn,
+        
+        # Índice n
+        'n_calculado': n_calc,
+        'n_ajustado': round(n_adj, 3),
+        'n_efectivo': round(n_eff, 3),
+        
+        # Carga
+        'Q': round(Q, 1),
+        'Lc_total': round(Lc_total, 2),
+        
+        # Doble taco
+        'doble_taco': doble_taco,
+        'eta_dist': round(eta_dist, 3) if doble_taco else 1.0,
+        'Lc1': round(Lc1, 2) if doble_taco else Lc_total,
+        'Lc2': round(Lc2, 2) if doble_taco else 0,
+        
+        # Fragmentación
+        'X50_cm': X50_cm,
+        'X50_pulg': round(X50_cm / 2.54, 2),
+        **percentiles,
+        
+        # Zonas de daño
+        'zonas': zonas,
+        
+        # Métricas
+        'metros_por_ha': round(metros_por_ha, 0),
+        'FC': round(FC, 3),
+        'V0': round(V0, 1)
+    }
+
+
 def calcular_parametros_teoricos_enaex(ucs, densidad_explosivo=1.2, vod=4500, diametro_pulg=6.75):
     """
     Calcula todos los parámetros óptimos de malla según teoría ENAEX.
@@ -304,11 +738,20 @@ def calcular_malla_minimos_metros(ucs, densidad_explosivo=1.2, vod=4500, diametr
 def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=4500, diametro_pulg=6.75,
                                              p80_objetivo=8.0, p100_objetivo=15.0,
                                              peso_metros=0.4, peso_p80=0.35, peso_p100=0.25,
-                                             altura_banco=15.0):
+                                             altura_banco=15.0, rqd=70, 
+                                             Kx_input=None, Kn_input=None,
+                                             usar_lilly=False, RWS=100):
     """
     ================================================================================
-    FÓRMULA DE OPTIMIZACIÓN MULTI-OBJETIVO - CALIBRADO LOS PELAMBRES (12,456 registros)
+    FÓRMULA DE OPTIMIZACIÓN MULTI-OBJETIVO - MODELO PILIX v3.6
     ================================================================================
+    
+    INTEGRA:
+    - Índice de Lilly para Factor A (opcional)
+    - Kuz-Ram con calibración Kx/Kn (Mundaca)
+    - Cunningham para índice n
+    - Factor de timing (Konya)
+    - Zonas de daño (Holmberg-Persson)
     
     MODELO DE FRAGMENTACIÓN KUZ-RAM CALIBRADO:
     ===========================================
@@ -316,29 +759,28 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
     1. Metros perforados:
        Metros/ha = (10,000 / (B × S)) × H
     
-    2. Carga por pozo:
-       Q = 68.7 × (H - T)    [kg]
-       Donde T = taco (m), H = altura banco
-    
-    3. Fragmentación (Kuz-Ram calibrado A=19.9):
-       X50 = 19.9 × 0.073 × (B×S×H/Q)^0.8 × Q^0.167 × (S/B)^0.1   [cm]
+    2. Modelo Kuz-Ram con Kx:
+       X50 = Kx × A × (V0/Q)^0.8 × Q^(1/6) × (1.15/Er)^(19/30)   [cm]
        
-       P80 = 1.36 × X50 × f_taco / 2.54    [pulgadas]
-       P100 = 5.82 × X50 × f_taco / 2.54   [pulgadas]
+       Donde:
+       - A = Factor de roca (Lilly: 3-13, o calibrado: 19.9)
+       - Kx = Factor de calibración (Mundaca)
+       - Er = RWS/100
     
-    4. Factor de taco (según tipo de malla):
-       Malla ABIERTA (B≥11m): f_taco = 1.0 - 0.30×(T-5.0)      → más taco = mejor
-       Malla CERRADA (B<8m):  f_taco = 1.0 + 0.30×(T-5.25)²   → MÍNIMO en T=5.25m
+    3. Índice n (Cunningham):
+       n = (2.2 - 14×B/D_mm) × √[(1+S/B)/2] × (1-W/B) × (Lc/H)
+       n_adj = n × Kn
     
-    5. Función objetivo:
-       min f = 0.30×(Metros/1500) + 0.20×(P80/4) + 0.35×(P100/12) + 0.15×(σ/0.5)
+    4. Percentiles (Rosin-Rammler):
+       Xc = X50 / (ln2)^(1/n)
+       P80 = Xc × [-ln(0.20)]^(1/n)
+       P100 = Xc × [-ln(0.01)]^(1/n)
     
-    SIMULACIÓN TACO INTERMEDIO:
-    ============================
-    Para mallas cerradas (B<8m), el taco óptimo es ~5.25m.
-    El taco intermedio reduce P100 en ~50% vs taco alto (6.5m).
+    5. Función objetivo PILIX:
+       min f = w1×(Metros/1500) + w2×(P80/4.5) + w3×(P100/12) + w4×(1-n/1.5)
     
     Parámetros:
+    -----------
     - ucs: Resistencia a compresión uniaxial (MPa)
     - densidad_explosivo: Densidad del explosivo (g/cc)
     - vod: Velocidad de detonación (m/s)
@@ -347,8 +789,13 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
     - p100_objetivo: P100 objetivo máximo (pulgadas)
     - peso_metros, peso_p80, peso_p100: Pesos de optimización
     - altura_banco: Altura del banco (m)
+    - rqd: Rock Quality Designation (%)
+    - Kx_input, Kn_input: Factores de calibración (si None, se estiman)
+    - usar_lilly: Si True, calcula A con Lilly; si False, usa A=19.9
+    - RWS: Relative Weight Strength del explosivo (ANFO=100)
     
     Retorna:
+    --------
     - Diccionario con parámetros optimizados y métricas
     """
     
@@ -362,8 +809,28 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
     tf_base = params_base['timing_filas_optimo']
     Th = params_base['Th']
     
-    # Constante A calibrada para Los Pelambres
-    A_CALIBRADO = 19.9
+    # =========================================================================
+    # MODELO PILIX v3.6: Calcular Factor A y Kx/Kn
+    # =========================================================================
+    
+    # Calcular Índice de Lilly
+    lilly_params = calcular_indice_lilly(ucs, rqd)
+    A_lilly = lilly_params['A']
+    
+    # Usar A de Lilly o calibrado
+    if usar_lilly:
+        A_CALIBRADO = A_lilly
+    else:
+        A_CALIBRADO = 19.9  # Valor calibrado Los Pelambres
+    
+    # Estimar o usar Kx/Kn proporcionados
+    if Kx_input is None or Kn_input is None:
+        Kx_est, Kn_est = estimar_Kx_Kn(ucs, rqd)
+        Kx = Kx_input if Kx_input is not None else Kx_est
+        Kn = Kn_input if Kn_input is not None else Kn_est
+    else:
+        Kx = Kx_input
+        Kn = Kn_input
     
     # Altura de banco fija para cálculos (parámetro de entrada)
     H = altura_banco
@@ -401,30 +868,47 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
             return 0.0
         return 68.7 * columna
     
-    def calcular_X50_calibrado(B, S, taco):
+    def calcular_X50_calibrado(B, S, taco, return_n=False):
         """
-        Modelo Kuz-Ram calibrado para Los Pelambres.
+        Modelo Kuz-Ram PILIX v3.6 con calibración Kx/Kn.
         
-        X50 = 19.9 × 0.073 × (B×S×H/Q)^0.8 × Q^0.167 × (S/B)^0.1   [cm]
+        X50 = Kx × A × (V0/Q)^0.8 × Q^(1/6) × (1.15/Er)^(19/30)   [cm]
+        n = (2.2 - 14×B/D_mm) × √[(1+S/B)/2] × (1-W/B) × (Lc/H) × Kn
         """
         Q = calcular_carga_pozo(taco)
         
         if Q <= 0:
-            return 30.0  # Valor alto si no hay carga
+            if return_n:
+                return 30.0, 1.2
+            return 30.0
         
         # Volumen por pozo (m³)
-        vol_pozo = B * S * H
+        V0 = B * S * H
         
-        # Ratio volumen/carga
-        ratio_vol_carga = vol_pozo / Q
+        # RWS relativo (Er)
+        Er = RWS / 100.0
         
-        # Ratio S/B
-        ratio_SB = S / B
+        # Fórmula Kuz-Ram con Kx (PILIX v3.6)
+        X50 = Kx * A_CALIBRADO * ((V0 / Q) ** 0.8) * (Q ** (1/6)) * ((1.15 / Er) ** (19/30))
         
-        # Fórmula Kuz-Ram calibrada (A=19.9)
-        X50 = A_CALIBRADO * 0.073 * (ratio_vol_carga ** 0.8) * (Q ** 0.167) * (ratio_SB ** 0.1)
+        # Calcular n de Cunningham
+        Lc = H - taco  # Longitud de carga
+        d_mm = diametro_pulg * 25.4
         
-        return max(5.0, min(40.0, X50))  # Limitar a rango realista (cm)
+        # Fórmula Cunningham
+        term1 = 2.2 - 14 * (B / d_mm)
+        term2 = np.sqrt((1 + S / B) / 2)
+        term3 = 1 - 0.5 / B  # W = 0.5m típico
+        term4 = Lc / H
+        
+        n_calc = term1 * term2 * term3 * term4 * Kn
+        n_calc = max(0.5, min(2.5, n_calc))
+        
+        X50 = max(5.0, min(60.0, X50))  # Limitar a rango realista (cm)
+        
+        if return_n:
+            return X50, n_calc
+        return X50
     
     def calcular_timing_optimo(B, S):
         """
@@ -465,17 +949,20 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
     
     def estimar_fragmentacion(B, S, taco, tp=None, tf=None):
         """
-        Estima P80 y P100 usando modelo calibrado con factor de timing.
+        Estima P80 y P100 usando modelo PILIX v3.6 con Rosin-Rammler.
         
-        P80 = 1.36 × X50 × f_taco × f_timing / 2.54    [pulgadas]
-        P100 = 5.82 × X50 × f_taco × f_timing / 2.54   [pulgadas]
+        Modelo Rosin-Rammler:
+        - Xc = X50 / (ln2)^(1/n)
+        - P80 = Xc × [-ln(0.20)]^(1/n)
+        - P100 = Xc × [-ln(0.01)]^(1/n)
         
         Donde:
+        - n = índice de uniformidad (Cunningham con Kn)
         - f_taco = factor de taco según tipo de malla
-        - f_timing = factor de corrección por timing (1.0 si óptimo)
+        - f_timing = factor de corrección por timing
         """
-        # Calcular X50 (cm)
-        X50_cm = calcular_X50_calibrado(B, S, taco)
+        # Calcular X50 y n (cm)
+        X50_cm, n = calcular_X50_calibrado(B, S, taco, return_n=True)
         
         # Factor de taco según tipo de malla
         f_taco = calcular_factor_taco(B, taco)
@@ -492,52 +979,61 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
         # Factor de timing
         f_timing = calcular_factor_timing(tp, tf, tp_opt, tf_opt)
         
-        # P80 y P100 con factores de corrección (convertir cm a pulgadas: /2.54)
-        P80 = 1.36 * X50_cm * f_taco * f_timing / 2.54
-        P100 = 5.82 * X50_cm * f_taco * f_timing / 2.54
+        # Xc de Rosin-Rammler
+        Xc = X50_cm / (0.693 ** (1/n))
+        
+        # P80 y P100 con Rosin-Rammler (cm) + factores de corrección
+        P80_cm = Xc * ((-np.log(0.20)) ** (1/n)) * f_taco * f_timing
+        P100_cm = Xc * ((-np.log(0.01)) ** (1/n)) * f_taco * f_timing
+        
+        # Convertir a pulgadas
+        P80 = P80_cm / 2.54
+        P100 = P100_cm / 2.54
         
         # Carga por pozo
         Q = calcular_carga_pozo(taco)
         
         # Limitar a rangos realistas
         P80 = max(2.0, min(15.0, P80))
-        P100 = max(5.0, min(30.0, P100))
+        P100 = max(5.0, min(35.0, P100))
         
-        return X50_cm, P80, P100, f_taco, f_timing, Q, tp_opt, tf_opt
+        return X50_cm, P80, P100, f_taco, f_timing, Q, tp_opt, tf_opt, n
     
     def funcion_objetivo(B, S, taco, tp=None, tf=None):
         """
-        Función objetivo calibrada con timing:
-        min f = 0.30×(Metros/1500) + 0.20×(P80/4) + 0.35×(P100/12) + 0.15×(σ/0.5)
+        Función objetivo PILIX v3.6:
+        min f = w1×(Metros/1500) + w2×(P80/4.5) + w3×(P100/12) + w4×(1-n/1.5)
         
-        Incluye penalización por timing subóptimo en la fragmentación.
+        Incluye:
+        - Penalización por timing subóptimo
+        - Penalización por baja uniformidad (n bajo)
         """
         area = B * S
         
         # Metros perforados por hectárea
         metros_por_ha = (10000 / area) * H
         
-        # Fragmentación con factor de timing
-        X50, P80_est, P100_est, f_taco, f_timing, Q, tp_opt, tf_opt = estimar_fragmentacion(B, S, taco, tp, tf)
+        # Fragmentación con modelo PILIX (incluye n de Cunningham)
+        X50, P80_est, P100_est, f_taco, f_timing, Q, tp_opt, tf_opt, n = estimar_fragmentacion(B, S, taco, tp, tf)
         
-        # Desviación estándar estimada (σ ≈ 0.15 × P80)
-        sigma_P80 = 0.15 * P80_est
-        
-        # Función objetivo normalizada (pesos calibrados)
+        # Función objetivo normalizada (pesos PILIX v3.6)
+        # w1=0.30, w2=0.20, w3=0.35, w4=0.15
         f_metros = metros_por_ha / 1500.0
-        f_P80 = P80_est / 4.0
+        f_P80 = P80_est / 4.5  # Normalizar a 4.5" (límite operativo)
         f_P100 = P100_est / 12.0
-        f_sigma = sigma_P80 / 0.5
         
-        # Usar pesos calibrados: 0.30, 0.20, 0.35, 0.15
-        J = 0.30 * f_metros + 0.20 * f_P80 + 0.35 * f_P100 + 0.15 * f_sigma
+        # Penalización por baja uniformidad (n ideal ≈ 1.5)
+        f_uniformidad = max(0, 1 - n / 1.5)
         
-        return J, X50, P80_est, P100_est, f_taco, f_timing, Q, metros_por_ha, area, tp_opt, tf_opt
+        # Usar pesos calibrados
+        J = 0.30 * f_metros + 0.20 * f_P80 + 0.35 * f_P100 + 0.15 * f_uniformidad
+        
+        return J, X50, P80_est, P100_est, f_taco, f_timing, Q, metros_por_ha, area, tp_opt, tf_opt, n
     
     def simular_taco_intermedio(B, S):
         """
         Simula diferentes valores de taco para encontrar el óptimo.
-        Incluye timing óptimo en la simulación.
+        Incluye timing óptimo y n de Cunningham en la simulación.
         Retorna tabla de simulación y taco óptimo.
         """
         resultados = []
@@ -546,7 +1042,7 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
         
         for taco in np.arange(4.0, 7.0, 0.25):
             # Usar timing óptimo para la simulación
-            J, X50, P80, P100, f_taco, f_timing, Q, metros, area, tp_opt, tf_opt = funcion_objetivo(B, S, taco)
+            J, X50, P80, P100, f_taco, f_timing, Q, metros, area, tp_opt, tf_opt, n = funcion_objetivo(B, S, taco)
             
             cumple = P80 <= p80_objetivo and P100 <= p100_objetivo
             
@@ -554,6 +1050,7 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
                 'taco': round(taco, 2),
                 'f_taco': round(f_taco, 2),
                 'f_timing': round(f_timing, 2),
+                'n': round(n, 2),
                 'Q_kg': round(Q, 0),
                 'X50_cm': round(X50, 2),
                 'P80': round(P80, 2),
@@ -591,7 +1088,7 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
         sim_tacos, taco_opt = simular_taco_intermedio(B, S)
         
         # Calcular con taco óptimo (usar timing óptimo)
-        J, X50, P80_est, P100_est, f_taco, f_timing, Q, metros, area, tp_opt, tf_opt = funcion_objetivo(B, S, taco_opt)
+        J, X50, P80_est, P100_est, f_taco, f_timing, Q, metros, area, tp_opt, tf_opt, n = funcion_objetivo(B, S, taco_opt)
         
         # Verificar restricciones
         if P80_est <= p80_objetivo and P100_est <= p100_objetivo:
@@ -614,6 +1111,7 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
                     'necesita_taco_intermedio': necesita_taco_int,
                     'f_taco': round(f_taco, 2),
                     'f_timing': round(f_timing, 2),
+                    'n_uniformidad': round(n, 2),
                     'carga_pozo_kg': round(Q, 2),
                     'timing_pozos': round(tp_opt, 2),
                     'timing_filas': round(tf_opt, 2),
@@ -626,6 +1124,9 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
                     'reduccion_metros_pct': round((1 - (B_base * S_base) / area) * 100, 2),
                     'funcion_objetivo': round(J, 4),
                     'A_calibrado': A_CALIBRADO,
+                    'Kx': Kx,
+                    'Kn': Kn,
+                    'lilly_params': lilly_params,
                     'Th_usado': Th,
                     'simulacion_tacos': sim_tacos,
                     'cumple_P80': P80_est <= p80_objetivo,
@@ -637,7 +1138,7 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
     # Si no se encontró solución factible, usar la base
     if mejor_resultado is None:
         taco_default = 5.25 if B_base < 8.0 else 0.85 * B_base
-        J, X50, P80_base, P100_base, f_taco, f_timing, Q, metros, area, tp_opt, tf_opt = funcion_objetivo(B_base, S_base, taco_default)
+        J, X50, P80_base, P100_base, f_taco, f_timing, Q, metros, area, tp_opt, tf_opt, n = funcion_objetivo(B_base, S_base, taco_default)
         
         mejor_resultado = {
             'factor_optimo': 1.00,
@@ -651,6 +1152,7 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
             'necesita_taco_intermedio': B_base < 8.0,
             'f_taco': round(f_taco, 2),
             'f_timing': round(f_timing, 2),
+            'n_uniformidad': round(n, 2),
             'carga_pozo_kg': round(Q, 2),
             'timing_pozos': round(tp_opt, 2),
             'timing_filas': round(tf_opt, 2),
@@ -663,6 +1165,9 @@ def calcular_malla_optimizada_multiobjetivo(ucs, densidad_explosivo=1.2, vod=450
             'reduccion_metros_pct': 0.00,
             'funcion_objetivo': round(J, 4),
             'A_calibrado': A_CALIBRADO,
+            'Kx': Kx,
+            'Kn': Kn,
+            'lilly_params': lilly_params,
             'Th_usado': Th,
             'simulacion_tacos': [],
             'cumple_P80': P80_base <= p80_objetivo,
@@ -2886,19 +3391,55 @@ def generar_simulador_montecarlo_html(ucs, burden, espaciamiento, taco, altura, 
             params.J = parseFloat(document.getElementById('input-J').value);
             params.n = parseFloat(document.getElementById('input-n').value);
             
-            // X50 calibrado Los Pelambres con factor de taco
-            // Usa el modelo: X50 = A × 0.073 × (B×S×H/Q)^0.8 × Q^0.167 × (S/B)^0.1
-            // Simplificación calibrada que da valores realistas
-            const Q = 68.7 * (params.H - params.T);  // Carga por pozo
-            const vol = params.B * params.S * params.H;
-            const A_calibrado = 19.9;  // Constante calibrada Los Pelambres
+            // =============================================
+            // MODELO PILIX v3.6 - CÁLCULOS ROBUSTOS
+            // =============================================
             
+            // 1. ÍNDICE DE LILLY (Factor A desde UCS)
+            // RMD basado en RQD estimado desde UCS
+            const rqd_est = Math.max(25, Math.min(100, 50 + params.UCS / 4));
+            const RMD = rqd_est > 75 ? 50 : (rqd_est >= 50 ? 20 : 10);
+            const JPS = rqd_est > 80 ? 50 : (rqd_est >= 50 ? 20 : 10);
+            const JPO = 25;
+            const SG = Math.min(2.9, Math.max(2.4, 2.5 + params.UCS / 400));
+            const SGI = 25 * SG - 50;
+            const HP = 0.05 * params.UCS;
+            const BI = 0.5 * (RMD + JPS + JPO + SGI + HP);
+            const A_lilly = Math.max(3.0, Math.min(13.0, 0.12 * BI));
+            
+            // 2. FACTORES Kx/Kn (Calibración Mundaca)
+            const Kx = Math.max(0.2, Math.min(1.5, 0.25 + 0.75 * (params.UCS / 200) * (rqd_est / 100)));
+            const Kn = Math.max(0.85, Math.min(1.15, 0.95 + 0.10 * (rqd_est / 100)));
+            
+            // Usar A calibrado Los Pelambres (19.9) o Lilly según configuración
+            const A_usado = 19.9;  // Calibrado LP
+            
+            // 3. CARGA POR POZO
+            const Lc = params.H - params.T;
+            const Q = Lc > 0 ? 68.7 * Lc : 0;
+            const vol = params.B * params.S * params.H;
+            
+            // 4. KUZ-RAM CON Kx (Modelo PILIX v3.6)
+            // X50 = Kx × A × (V0/Q)^0.8 × Q^(1/6) × (1.15/Er)^(19/30)
+            const Er = 1.0;  // RWS relativo (ANFO=1.0)
             if (Q > 0) {{
-                params.X50 = A_calibrado * 0.073 * Math.pow(vol/Q, 0.8) * Math.pow(Q, 0.167) * Math.pow(params.S/params.B, 0.1);
-                params.X50 = Math.max(5, Math.min(25, params.X50));
+                params.X50 = Kx * A_usado * Math.pow(vol/Q, 0.8) * Math.pow(Q, 1/6) * Math.pow(1.15/Er, 19/30);
+                params.X50 = Math.max(5, Math.min(60, params.X50));
             }}
             
-            // Factor de taco calibrado
+            // 5. ÍNDICE n DE CUNNINGHAM CON Kn
+            // n = (2.2 - 14×B/D_mm) × √[(1+S/B)/2] × (1-W/B) × (Lc/H) × Kn
+            const D_mm = params.d;  // ya en mm
+            const term1 = 2.2 - 14 * (params.B / D_mm);
+            const term2 = Math.sqrt((1 + params.S / params.B) / 2);
+            const term3 = 1 - 0.5 / params.B;  // W = 0.5m típico
+            const term4 = Math.max(0.1, Lc / params.H);
+            const n_calc = Math.max(0.5, Math.min(2.5, term1 * term2 * term3 * term4 * Kn));
+            
+            // Actualizar n
+            params.n_calc = n_calc;
+            
+            // 6. FACTOR DE TACO (Modelo Los Pelambres)
             let f_taco = 1.0;
             if (params.B >= 11.0) {{
                 f_taco = 1.0 - 0.30 * (params.T - 5.0);
@@ -2912,14 +3453,43 @@ def generar_simulador_montecarlo_html(ucs, burden, espaciamiento, taco, altura, 
             }}
             f_taco = Math.max(0.5, Math.min(2.0, f_taco));
             
-            // Valores teóricos con factor de taco calibrado
+            // 7. ROSIN-RAMMLER CON n CALCULADO
+            // Xc = X50 / (ln2)^(1/n)
+            const n_eff = params.n_calc || params.n;
+            const Xc = params.X50 / Math.pow(0.693, 1/n_eff);
+            
+            // P80 = Xc × [-ln(0.20)]^(1/n) × f_taco
+            // P100 = Xc × [-ln(0.01)]^(1/n) × f_taco
             theoreticalValues.X50 = params.X50;
-            theoreticalValues.Xc = params.X50 / Math.pow(0.693, 1/params.n);
-            theoreticalValues.P80 = 1.36 * params.X50 * f_taco / 2.54;  // Fórmula calibrada
-            theoreticalValues.P100 = 5.82 * params.X50 * f_taco / 2.54;  // Fórmula calibrada
+            theoreticalValues.Xc = Xc;
+            theoreticalValues.n = n_eff;
+            theoreticalValues.Kx = Kx;
+            theoreticalValues.Kn = Kn;
+            theoreticalValues.A = A_usado;
+            theoreticalValues.P80 = (Xc * Math.pow(-Math.log(0.20), 1/n_eff) * f_taco) / 2.54;
+            theoreticalValues.P100 = (Xc * Math.pow(-Math.log(0.01), 1/n_eff) * f_taco) / 2.54;
             
-            if (params.dobleTaco) theoreticalValues.P100 *= 0.80;
+            // 8. REDUCCIÓN POR DOBLE TACO
+            if (params.dobleTaco) {{
+                const gamma = 0.20;
+                const Ti = params.Ti || 2.0;
+                const reduccion = 1 - gamma * (Ti / (params.T + Ti));
+                theoreticalValues.P100 *= reduccion;
+            }}
             
+            // 9. ZONAS DE DAÑO (Holmberg-Persson)
+            const rho_e = 1.2 * 1000;  // kg/m³
+            const VOD = 4500;  // m/s
+            const Pd = (rho_e * VOD * VOD) / 4 / 1e9;  // GPa
+            const r0 = (params.d / 1000) / 2;  // Radio pozo en m
+            const sigma_c = params.UCS / 1000;  // GPa
+            const sigma_t = (params.UCS / 10) / 1000;  // GPa
+            theoreticalValues.Pd = Pd;
+            theoreticalValues.rc = r0 * Math.pow(Pd / sigma_c, 0.6);
+            theoreticalValues.rf = r0 * Math.pow(Pd / sigma_t, 0.45);
+            theoreticalValues.rd = theoreticalValues.rf * 2.0;
+            
+            // Actualizar UI
             document.getElementById('calc-X50').textContent = params.X50.toFixed(2) + ' cm';
             document.getElementById('disp-B').textContent = params.B;
             document.getElementById('disp-S').textContent = params.S;
@@ -3111,13 +3681,23 @@ def generar_simulador_montecarlo_html(ucs, burden, espaciamiento, taco, altura, 
             const variability = parseFloat(document.getElementById('input-var').value) / 100;
             const fragsPerIter = 150;
             
-            mcResults = {{ p80_values: [], p100_values: [], allSizes: [], iterations }};
+            mcResults = {{ p80_values: [], p100_values: [], allSizes: [], iterations, sensibilidad: {{}} }};
             
-            const {{ X50, n, dobleTaco }} = params;
+            // Usar n calculado (Cunningham) o input
+            const {{ X50, dobleTaco, Ti }} = params;
+            const n_eff = params.n_calc || params.n;
+            
+            // Guardar valores base para análisis de sensibilidad
+            const X50_base = X50;
+            const n_base = n_eff;
             
             for (let i = 0; i < iterations; i++) {{
-                const X50_var = X50 * (1 + variability * (Math.random() - 0.5) * 2);
-                const n_var = n * (1 + 0.5 * variability * (Math.random() - 0.5) * 2);
+                // Variabilidad PILIX v3.6: perturbación normal truncada
+                const Z1 = (Math.random() - 0.5) * 2;  // ~U(-1, 1)
+                const Z2 = (Math.random() - 0.5) * 2;
+                
+                const X50_var = X50 * (1 + variability * Z1);
+                const n_var = Math.max(0.5, Math.min(2.5, n_eff * (1 + 0.3 * variability * Z2)));
                 
                 const Xc = X50_var / Math.pow(0.693, 1 / n_var);
                 const sizes = [];
@@ -3125,7 +3705,14 @@ def generar_simulador_montecarlo_html(ucs, burden, espaciamiento, taco, altura, 
                 for (let f = 0; f < fragsPerIter; f++) {{
                     const u = Math.random() * 0.998;
                     let size = Xc * Math.pow(-Math.log(1 - u), 1 / n_var);
-                    if (dobleTaco && size > Xc * 2) size *= 0.75 + Math.random() * 0.15;
+                    
+                    // Reducción por doble taco (γ=0.20)
+                    if (dobleTaco && size > Xc * 2) {{
+                        const gamma = 0.20;
+                        const T_total = params.T + (Ti || 2.0);
+                        const reduccion = 1 - gamma * (Ti || 2.0) / T_total;
+                        size *= reduccion;
+                    }}
                     sizes.push(size);
                 }}
                 
@@ -3142,6 +3729,17 @@ def generar_simulador_montecarlo_html(ucs, burden, espaciamiento, taco, altura, 
                 }}
             }}
             
+            // Análisis de sensibilidad PILIX v3.6
+            const mean = arr => arr.reduce((a,b) => a+b, 0) / arr.length;
+            const std = arr => Math.sqrt(arr.map(x => Math.pow(x - mean(arr), 2)).reduce((a,b) => a+b, 0) / arr.length);
+            
+            mcResults.sensibilidad = {{
+                'X50': {{ base: X50_base.toFixed(2), cv: (std(mcResults.p80_values) / mean(mcResults.p80_values) * 100).toFixed(1) }},
+                'n': {{ base: n_base.toFixed(2), efecto: 'Mayor n → menor dispersión' }},
+                'Kx': {{ base: theoreticalValues.Kx?.toFixed(2) || '1.0', efecto: 'Kx < 1 → más fino' }},
+                'variabilidad': {{ base: (variability * 100).toFixed(0) + '%', efecto: 'Mayor CV → mayor incertidumbre' }}
+            }};
+            
             drawCurveWithCI();
             drawHistogram('hist-p80', mcResults.p80_values, 'P80', '#2196f3', 4.5);
             drawHistogram('hist-p100', mcResults.p100_values, 'P100', '#f44336', 12);
@@ -3154,8 +3752,12 @@ def generar_simulador_montecarlo_html(ucs, burden, espaciamiento, taco, altura, 
             const p80 = mcResults.p80_values, p100 = mcResults.p100_values;
             const N = p80.length;
             const mean = arr => arr.reduce((a,b) => a+b, 0) / arr.length;
+            const std = arr => Math.sqrt(arr.map(x => Math.pow(x - mean(arr), 2)).reduce((a,b) => a+b, 0) / arr.length);
             
             const mc_p80 = mean(p80), mc_p100 = mean(p100);
+            const std_p80 = std(p80), std_p100 = std(p100);
+            const cv_p80 = (std_p80 / mc_p80 * 100);
+            
             const diff_p80 = ((mc_p80 - theoreticalValues.P80) / theoreticalValues.P80 * 100);
             const diff_p100 = ((mc_p100 - theoreticalValues.P100) / theoreticalValues.P100 * 100);
             
@@ -3168,26 +3770,47 @@ def generar_simulador_montecarlo_html(ucs, burden, espaciamiento, taco, altura, 
             document.getElementById('diff-p100').innerHTML = '<span class="' + dc100 + '">' + (diff_p100 > 0 ? '+' : '') + diff_p100.toFixed(1) + '%</span>';
             
             const probP100ok = p100.filter(v => v <= 12).length / N * 100;
+            const probP80ok = p80.filter(v => v <= 4.5).length / N * 100;
             
             let recs = [];
             
+            // Recomendaciones PILIX v3.6
             if (params.UCS > 150 && mc_p100 > 10 && !params.dobleTaco) {{
-                recs.push({{ type: 'critical', text: '<b>Doble Taco recomendado:</b> UCS=' + params.UCS + 'MPa (roca dura). Activar reduciría P100 ~20%.' }});
+                recs.push({{ type: 'critical', text: '<b>🔷 Doble Taco recomendado:</b> UCS=' + params.UCS + 'MPa (roca dura). Reduciría P100 ~20%.' }});
             }}
             
             if (params.dobleTaco) {{
-                recs.push({{ type: 'success', text: '<b>Doble Taco activo:</b> Reducción P100 estimada en 20%.' }});
+                recs.push({{ type: 'success', text: '<b>✓ Doble Taco activo:</b> Reducción P100 aplicada (γ=0.20).' }});
             }}
             
+            // Análisis Kx (modelo PILIX)
+            if (theoreticalValues.Kx && theoreticalValues.Kx < 0.5) {{
+                recs.push({{ type: 'success', text: '<b>📊 Calibración Kx=' + theoreticalValues.Kx.toFixed(2) + ':</b> Fragmentación más fina que modelo teórico.' }});
+            }}
+            
+            // Análisis uniformidad n
+            const n_eff = params.n_calc || params.n;
+            if (n_eff < 1.0) {{
+                recs.push({{ type: 'warning', text: '<b>⚠️ Uniformidad baja (n=' + n_eff.toFixed(2) + '):</b> Distribución amplia de tamaños.' }});
+            }} else if (n_eff > 1.5) {{
+                recs.push({{ type: 'success', text: '<b>✓ Uniformidad alta (n=' + n_eff.toFixed(2) + '):</b> Distribución concentrada.' }});
+            }}
+            
+            // Probabilidad de cumplimiento
             if (probP100ok < 80) {{
-                recs.push({{ type: 'critical', text: '<b>Riesgo sobretamaños:</b> Solo ' + probP100ok.toFixed(0) + '% cumple P100≤12". Reducir B/S o usar doble taco.' }});
+                recs.push({{ type: 'critical', text: '<b>⛔ Riesgo sobretamaños:</b> Solo ' + probP100ok.toFixed(0) + '% cumple P100≤12". Reducir B/S.' }});
             }} else if (probP100ok >= 90) {{
-                recs.push({{ type: 'success', text: '<b>Fragmentación OK:</b> ' + probP100ok.toFixed(0) + '% cumple P100≤12".' }});
+                recs.push({{ type: 'success', text: '<b>✓ Fragmentación OK:</b> ' + probP100ok.toFixed(0) + '% cumple P100≤12", ' + probP80ok.toFixed(0) + '% cumple P80≤4.5".' }});
+            }}
+            
+            // CV (incertidumbre)
+            if (cv_p80 > 10) {{
+                recs.push({{ type: 'warning', text: '<b>📈 Alta variabilidad (CV=' + cv_p80.toFixed(1) + '%):</b> Considere reducir variabilidad input.' }});
             }}
             
             document.getElementById('recommendation-box').innerHTML = 
-                '<h4>💡 Recomendaciones</h4>' + 
-                recs.map(r => '<div class="rec-item ' + (r.type === 'critical' ? 'rec-critical' : 'rec-success') + '">' + r.text + '</div>').join('');
+                '<h4>💡 Recomendaciones PILIX v3.6</h4>' + 
+                recs.map(r => '<div class="rec-item ' + (r.type === 'critical' ? 'rec-critical' : (r.type === 'warning' ? 'rec-warning' : 'rec-success')) + '">' + r.text + '</div>').join('');
         }}
 
         function generateVisualFragments() {{
@@ -3964,24 +4587,164 @@ Para **UCS = {ucs_input} MPa** se recomienda: **`{params_teoricos['explosivo_rec
 """)
 
 # ===== FÓRMULAS (COLAPSADAS) =====
-with st.expander("📚 Ver fórmulas y explicaciones", expanded=False):
+with st.expander("📚 Ver fórmulas y explicaciones - Modelo PILIX v3.6", expanded=False):
     st.markdown(f"""
-    ## Fórmulas Calibradas - Los Pelambres (12,456 registros)
+    ## 📘 Modelo PILIX v3.6 - Simulador de Fragmentación Kuz-Ram
+    
+    **Integra:** Índice de Lilly, Calibración Kx/Kn, Cunningham, Rosin-Rammler, Monte Carlo
     
     ---
     
-    ### 1. PARÁMETROS DE MALLA (ENAEX/Ash)
+    ### 1. ÍNDICE DE LILLY (Factor de Roca A)
+    
+    **Basado en:** Lilly, P.A. (1986) - "An Empirical Method of Assessing Rock Mass Blastability"
+    
+    ```
+    SGI = 25 × SG - 50          (Influencia densidad)
+    HP = 0.05 × UCS             (Hardness Parameter)
+    BI = 0.5 × (RMD + JPS + JPO + SGI + HP)
+    A = 0.12 × BI               (Factor de roca, típico 3-13)
+    ```
+    
+    | Parámetro | Significado | Rango típico |
+    |-----------|-------------|--------------|
+    | RMD | Rock Mass Description (desde RQD) | 10-50 |
+    | JPS | Joint Plane Spacing | 10-50 |
+    | JPO | Joint Plane Orientation | 10-40 |
+    | SGI | Specific Gravity Influence | 10-22.5 |
+    | HP | Hardness Parameter | 2.5-10 |
+    
+    ---
+    
+    ### 2. FACTORES DE CALIBRACIÓN Kx/Kn (Mundaca)
+    
+    **Referencia:** Mundaca et al. (2015) - "Calibración modelo Kuz-Ram en UGT-4 Chuquicamata"
+    
+    ```
+    Kx ≈ 0.25 + 0.75 × (UCS/200) × (RQD/100)    [Rango: 0.2-1.5]
+    Kn ≈ 0.95 + 0.10 × (RQD/100)                [Rango: 0.85-1.15]
+    ```
+    
+    | Factor | Interpretación |
+    |--------|----------------|
+    | **Kx < 1** | Fragmentación real más fina que predicción teórica |
+    | **Kx > 1** | Fragmentación real más gruesa que predicción teórica |
+    | **Kn < 1** | Distribución menos uniforme |
+    | **Kn > 1** | Distribución más uniforme |
+    
+    **Referencia UGT-4 Chuquicamata:** Kx=0.31, Kn=1.04 (calibrado con Split)
+    
+    ---
+    
+    ### 3. MODELO KUZ-RAM CON Kx (PILIX v3.6)
+    
+    **Fórmula completa:**
+    ```
+    X50 = Kx × A × (V₀/Q)^0.8 × Q^(1/6) × (1.15/Er)^(19/30)   [cm]
+    ```
+    
+    Donde:
+    - **Kx** = Factor de calibración Mundaca
+    - **A** = Factor de roca (Lilly o calibrado 19.9 para Los Pelambres)
+    - **V₀** = Volumen de roca por pozo (B × S × H) [m³]
+    - **Q** = Masa de explosivo por pozo [kg]
+    - **Er** = RWS/100 (Relative Weight Strength, ANFO=1.0)
+    
+    ---
+    
+    ### 4. ÍNDICE DE UNIFORMIDAD n (Cunningham)
+    
+    **IMPORTANTE:** El diámetro debe estar en MILÍMETROS
+    
+    ```
+    n = (2.2 - 14×B/D_mm) × √[(1+S/B)/2] × (1-W/B) × (Lc/H) × Kn
+    ```
+    
+    Donde:
+    - D_mm = Diámetro en milímetros (ej: 10.625" = 270mm)
+    - W = Desviación estándar de perforación (~0.5m)
+    - Lc = Longitud de carga [m]
+    
+    ---
+    
+    ### 5. DISTRIBUCIÓN ROSIN-RAMMLER
+    
+    **Característica constante Xc:**
+    ```
+    Xc = X50 / (ln2)^(1/n)
+    ```
+    
+    **Percentiles:**
+    ```
+    P(x) = 1 - exp[-(x/Xc)^n]
+    Px = Xc × [-ln(1-P/100)]^(1/n)
+    ```
+    
+    | Percentil | Fórmula | Significado |
+    |-----------|---------|-------------|
+    | P10 | Xc × [-ln(0.90)]^(1/n) | 10% más fino |
+    | P50 (X50) | - | Tamaño medio |
+    | P80 | Xc × [-ln(0.20)]^(1/n) | Objetivo chancado |
+    | P100 | Xc × [-ln(0.01)]^(1/n) | Sobretamaño máximo |
+    
+    ---
+    
+    ### 6. MODELO DOBLE TACO (3 APDs)
+    
+    **Factor de distribución η:**
+    ```
+    balance = 1 - |Lc1 - Lc2| / (Lc1 + Lc2)
+    η_dist = 1 + α × balance    [α ≈ 0.10-0.15]
+    ```
+    
+    **Índice n efectivo:**
+    ```
+    n_eff = n × Kn × [1 + β×(η-1)]    [β = 0.5]
+    ```
+    
+    **Reducción P100:**
+    ```
+    P100_reducido = P100_base × (1 - γ × Ti/(T+Ti))    [γ = 0.20]
+    ```
+    
+    **Beneficio:** El doble taco reduce típicamente el P100 en 15-25%
+    
+    ---
+    
+    ### 7. ZONAS DE DAÑO (Holmberg-Persson)
+    
+    ```
+    Pd = ρe × VOD² / 4            [GPa] - Presión de detonación
+    rc = r₀ × (Pd/σc)^0.6         [m] - Radio de trituración
+    rf = r₀ × (Pd/σt)^0.45        [m] - Radio de fractura
+    rd = rf × 2.0                 [m] - Radio de daño
+    ```
+    
+    ---
+    
+    ### 8. FUNCIÓN OBJETIVO PILIX v3.6
+    
+    **Minimización multi-objetivo:**
+    ```
+    min f = w₁×(Metros/1500) + w₂×(P80/4.5) + w₃×(P100/12) + w₄×(1-n/1.5)
+    ```
+    
+    | Componente | Peso | Normalización | Objetivo |
+    |------------|------|---------------|----------|
+    | Metros perforados | 0.30 | /1500 m/ha | Minimizar perforación |
+    | P80 | 0.20 | /4.5" | Fragmentación operativa |
+    | P100 | 0.35 | /12.0" | Minimizar sobretamaño |
+    | Uniformidad (n) | 0.15 | /1.5 | Mayor n = mejor distribución |
+    
+    ---
+    
+    ### 9. PARÁMETROS DE MALLA (ENAEX/Ash)
     
     **Burden (Ash modificada):**
     ```
     B = (Kb × De × (ρe/ρr)^0.33 × (VOD/4000)^0.5) / 39.37
     B = ({params_teoricos['Kb']} × {diametro_input} × ({densidad_exp}/2.65)^0.33 × ({vod_exp}/4000)^0.5) / 39.37
     B = {params_teoricos['burden_optimo']} m
-    ```
-    
-    **Espaciamiento:**
-    ```
-    S = Ks × B = {params_teoricos['ratio_SB']} × {params_teoricos['burden_optimo']} = {params_teoricos['espaciamiento_optimo']} m
     ```
     
     **Timing (Konya):**
@@ -3992,111 +4755,7 @@ with st.expander("📚 Ver fórmulas y explicaciones", expanded=False):
     
     ---
     
-    ### 2. MODELO DE FRAGMENTACIÓN KUZ-RAM CALIBRADO
-    
-    **Metros perforados:**
-    ```
-    Metros/ha = (10,000 / (B × S)) × H
-    ```
-    
-    **Carga por pozo (calibrada):**
-    ```
-    Q = 68.7 × (H - T)    [kg]
-    ```
-    Donde T = taco (m), H = altura banco = {altura_banco_est} m
-    
-    **Fragmentación X50 (Cunningham, A=19.9 calibrado):**
-    ```
-    X50 = 19.9 × 0.073 × (B×S×H/Q)^0.8 × Q^0.167 × (S/B)^0.1   [cm]
-    ```
-    
-    **Conversión a P80 y P100 (con factores de corrección):**
-    ```
-    P80 = 1.36 × X50 × f_taco × f_timing / 2.54    [pulgadas]
-    P100 = 5.82 × X50 × f_taco × f_timing / 2.54   [pulgadas]
-    ```
-    
-    Donde:
-    - **f_taco** = factor de taco según tipo de malla
-    - **f_timing** = factor de timing (1.0 si timing óptimo)
-    
-    ---
-    
-    ### 3. FACTOR DE TACO (clave para fragmentación)
-    
-    El factor de taco depende del **tipo de malla**:
-    
-    | Tipo Malla | Condición | Fórmula f_taco | Comportamiento |
-    |------------|-----------|----------------|----------------|
-    | **ABIERTA** | B ≥ 11m | f = 1.0 - 0.30×(T-5.0) | Más taco = mejor |
-    | **CERRADA** | B < 8m | f = 1.0 + 0.30×(T-5.25)² | **Óptimo en T=5.25m** |
-    | Intermedia | 8m ≤ B < 11m | Interpolación lineal | Transición |
-    
-    **Para malla cerrada (B<8m):** El taco óptimo es **~5.25m**
-    - Taco = 5.0-5.5m → P80 = 2.3", P100 = 9.8" ✅ **ÓPTIMO**
-    - Taco = 6.5m → P80 = 3.6", P100 = 15.5" ❌ Empeora 50%
-    
-    ---
-    
-    ### 4. FACTOR DE TIMING (Konya)
-    
-    **Timing óptimo entre pozos y filas:**
-    ```
-    Timing pozos (tp) = Th × S    [ms]
-    Timing filas (tf) = 11.5 × B  [ms]
-    ```
-    
-    Donde Th depende de la dureza de roca:
-    
-    | UCS (MPa) | Tipo de Roca | Th (ms/m) |
-    |-----------|--------------|-----------|
-    | < 50 | Blanda (arena, margas) | 6.5 |
-    | 50-80 | Media (calizas, esquistos) | 5.5 |
-    | 80-120 | Dura (calizas compactas, granitos) | 4.5 |
-    | > 120 | Muy dura (gneis compactos) | 3.5 |
-    
-    **Factor de corrección por timing:**
-    ```
-    f_timing = 1.0 + 0.08×|tp/tp_opt - 1| + 0.12×|tf/tf_opt - 1|
-    ```
-    
-    - **f_timing = 1.0** → Timing óptimo, fragmentación esperada
-    - **f_timing > 1.0** → Timing subóptimo, fragmentación más gruesa
-    
-    ---
-    
-    ### 6. FUNCIÓN OBJETIVO MULTI-OBJETIVO
-    
-    **Minimización simultánea (pesos calibrados):**
-    ```
-    min f = 0.30×(Metros/1500) + 0.20×(P80/4) + 0.35×(P100/12) + 0.15×(σ/0.5)
-    ```
-    
-    | Componente | Peso | Normalización | Objetivo |
-    |------------|------|---------------|----------|
-    | Metros perforados | 0.30 | /1500 m/ha | Minimizar perforación |
-    | P80 | 0.20 | /4.0" | Fragmentación fina |
-    | P100 | 0.35 | /12.0" | Minimizar sobretamaño |
-    | σ (variabilidad) | 0.15 | /0.5" | Uniformidad |
-    
-    ---
-    
-    ### 7. SIMULACIÓN TACO INTERMEDIO (Malla Cerrada B=6.5m)
-    
-    | Taco | f_taco | Carga | P80 | P100 | Cumple |
-    |------|--------|-------|-----|------|--------|
-    | 4.5m | 0.69 | 824kg | 2.58" | 11.0" | ✓ |
-    | **5.0m** | 0.77 | 790kg | 2.31" | 9.9" | **✓ ÓPTIMO** |
-    | **5.25m** | 0.81 | 773kg | 2.30" | 9.8" | **✓ ÓPTIMO** |
-    | **5.5m** | 0.85 | 756kg | 2.38" | 10.2" | **✓ ÓPTIMO** |
-    | 6.0m | 0.92 | 721kg | 2.81" | 12.0" | ✓ |
-    | 6.5m | 1.00 | 687kg | 3.64" | 15.5" | ✗ |
-    
-    **Conclusión:** El taco intermedio (5.0-5.5m) reduce P100 en ~50% vs taco alto.
-    
-    ---
-    
-    ### 8. CONSTANTES SEGÚN DUREZA DE ROCA
+    ### 10. CONSTANTES SEGÚN DUREZA DE ROCA
     
     | UCS (MPa) | Tipo | Kb | Ks (S/B) | Th (ms/m) | FC óptimo |
     |-----------|------|-----|----------|-----------|-----------|
@@ -4107,11 +4766,16 @@ with st.expander("📚 Ver fórmulas y explicaciones", expanded=False):
     
     ---
     
-    ### Referencias
+    ### Referencias Bibliográficas
+    
+    - **Cunningham, C.V.B.** (1983). "The Kuz-Ram Model for Prediction of Fragmentation from Blasting". ISEE.
+    - **Lilly, P.A.** (1986). "An Empirical Method of Assessing Rock Mass Blastability". AusIMM.
+    - **Holmberg, R. & Persson, P.A.** (1980). "Design of Tunnel Perimeter Blasthole Patterns".
+    - **Mundaca et al.** (2015). "Calibración modelo Kuz-Ram en UGT-4 Chuquicamata".
+    - **ENAEX** (2020). "Manual Técnico de Explosivos".
+    - **Konya, C.J.** (1995). "Blast Design".
+    - **Manual de Diseño P&T Los Pelambres** (Sep-Nov 2025).
     - **Datos calibración:** Los Pelambres, 12,456 registros
-    - Manual de Tronadura ENAEX
-    - Cunningham, C.V.B. (1983) - The Kuz-Ram model
-    - Konya, C.J. (1995) - Blast Design
     """)
 
 # ===== ANÁLISIS DE SENSIBILIDAD =====
