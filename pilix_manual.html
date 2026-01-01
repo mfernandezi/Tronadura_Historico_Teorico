@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manual de Usuario - Pilix v3.6</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0d1a1f 0%, #122429 100%);
+            color: #e2e8f0;
+            line-height: 1.6;
+            padding: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: #00778B;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #9aa0a6;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        h2 {
+            color: #EAAA00;
+            border-bottom: 2px solid #EAAA00;
+            padding-bottom: 5px;
+            margin: 25px 0 15px 0;
+            font-size: 20px;
+        }
+        h3 {
+            color: #64CCC9;
+            margin: 20px 0 10px 0;
+            font-size: 16px;
+        }
+        .section {
+            background: rgba(26, 48, 56, 0.8);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            border: 1px solid #2d4a52;
+        }
+        .important {
+            background: rgba(234, 170, 0, 0.15);
+            border-left: 4px solid #EAAA00;
+            padding: 10px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        .tip {
+            background: rgba(100, 204, 201, 0.15);
+            border-left: 4px solid #64CCC9;
+            padding: 10px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        .warning {
+            background: rgba(210, 38, 48, 0.15);
+            border-left: 4px solid #D22630;
+            padding: 10px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            font-size: 13px;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+            border: 1px solid #2d4a52;
+        }
+        th {
+            background: rgba(0, 119, 139, 0.3);
+            color: #64CCC9;
+        }
+        tr:nth-child(even) {
+            background: rgba(26, 48, 56, 0.5);
+        }
+        code {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Consolas', monospace;
+            color: #64CCC9;
+        }
+        .formula {
+            background: rgba(166, 105, 153, 0.2);
+            border: 1px solid #A66999;
+            padding: 10px;
+            border-radius: 4px;
+            text-align: center;
+            font-family: 'Consolas', monospace;
+            margin: 10px 0;
+        }
+        ul, ol {
+            margin-left: 20px;
+            margin-bottom: 10px;
+        }
+        li {
+            margin-bottom: 5px;
+        }
+        .step {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .step-num {
+            background: #00778B;
+            color: #000;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+        .param-table th:first-child { width: 120px; }
+        .param-table th:nth-child(2) { width: 80px; }
+        @media print {
+            body { background: white; color: black; }
+            .section { border: 1px solid #ccc; }
+        }
+    </style>
+</head>
+<body>
+    <h1>📘 Manual de Usuario - Pilix v3.6</h1>
+    <p class="subtitle">Simulador de Fragmentación Kuz-Ram con Monte Carlo | ENAEX</p>
+
+    <div class="section">
+        <h2>🎯 1. ¿Qué es Pilix?</h2>
+        <p>Pilix es un simulador de fragmentación de roca basado en el modelo <strong>Kuz-Ram</strong> (Kuznetsov-Cunningham) con las siguientes capacidades:</p>
+        <ul>
+            <li><strong>Predicción de fragmentación:</strong> Calcula X50, P80, P100 basado en geometría y explosivo</li>
+            <li><strong>Índice de Lilly:</strong> Estima el Factor de Roca A desde UCS y RQD</li>
+            <li><strong>Calibración Kx/Kn:</strong> Ajusta predicciones con datos reales (Mundaca)</li>
+            <li><strong>Simulación Monte Carlo:</strong> Cuantifica incertidumbre y rangos de confianza</li>
+            <li><strong>Modelo Doble Taco:</strong> Simula configuración con taco intermedio y 3 APDs</li>
+            <li><strong>Pozos Especiales:</strong> Buffer, Borde, Precorte con secuencia MLP</li>
+            <li><strong>Visualización 3D:</strong> Animación de secuencia de detonación</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>🚀 2. Inicio Rápido (5 minutos)</h2>
+        
+        <div class="step">
+            <div class="step-num">1</div>
+            <div>
+                <strong>Ingresar propiedades de roca:</strong><br>
+                Solo necesitas <code>UCS (MPa)</code> y <code>RQD (%)</code>. El sistema estima automáticamente RMD, JPS, JPO, SG, σt y calcula A (Lilly).
+            </div>
+        </div>
+        
+        <div class="step">
+            <div class="step-num">2</div>
+            <div>
+                <strong>Seleccionar explosivo ENAEX:</strong><br>
+                Elige de la lista (ej: Energex 70). Los parámetros VOD, densidad y RWS se cargan automáticamente.
+            </div>
+        </div>
+        
+        <div class="step">
+            <div class="step-num">3</div>
+            <div>
+                <strong>Configurar geometría:</strong><br>
+                Ingresa Burden (B), Espaciamiento (S), Taco (T), Altura (H), Pasadura (J) y Diámetro (d).
+            </div>
+        </div>
+        
+        <div class="step">
+            <div class="step-num">4</div>
+            <div>
+                <strong>Hacer clic en "🔥 Simular":</strong><br>
+                El sistema ejecuta Monte Carlo (500 iteraciones por defecto) y muestra resultados.
+            </div>
+        </div>
+        
+        <div class="step">
+            <div class="step-num">5</div>
+            <div>
+                <strong>Revisar resultados:</strong><br>
+                Ver P80, P100, distribución de masa, curva granulométrica y análisis de sensibilidad.
+            </div>
+        </div>
+        
+        <div class="tip">
+            💡 <strong>Tip:</strong> Para diseño preliminar, usa Kx=1 y Kn=1. Para operación, calibra con datos de fragmentación real.
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>📊 3. Parámetros de Entrada</h2>
+        
+        <h3>3.1 Roca e Índice de Lilly</h3>
+        <table class="param-table">
+            <tr><th>Parámetro</th><th>Unidad</th><th>Descripción</th><th>Rango típico</th></tr>
+            <tr><td><strong>UCS (σc)</strong></td><td>MPa</td><td>Resistencia a compresión uniaxial</td><td>50-200</td></tr>
+            <tr><td><strong>RQD</strong></td><td>%</td><td>Rock Quality Designation</td><td>25-100</td></tr>
+        </table>
+        
+        <div class="important">
+            ⚠️ El sistema estima automáticamente RMD, JPS, JPO, SG y σt desde UCS y RQD. Si tienes datos más precisos, puedes ajustar el Factor A manualmente.
+        </div>
+        
+        <h3>3.2 Factores Kx/Kn (Calibración)</h3>
+        <table class="param-table">
+            <tr><th>Parámetro</th><th>Rango</th><th>Descripción</th></tr>
+            <tr><td><strong>Kx</strong></td><td>0.1-2.0</td><td>Factor de corrección X50. Kx&lt;1 → más fino, Kx&gt;1 → más grueso</td></tr>
+            <tr><td><strong>Kn</strong></td><td>0.5-1.5</td><td>Factor de corrección uniformidad n</td></tr>
+        </table>
+        
+        <div class="formula">
+            X50_final = Kx × [A × (V₀/Q)^0.8 × Q^(1/6) × (115/RWS)^(19/30)]
+        </div>
+        
+        <p><strong>Referencia UGT-4 Chuquicamata:</strong> Kx=0.31, Kn=1.04 (calibrado con datos Split)</p>
+        
+        <h3>3.3 Geometría</h3>
+        <table class="param-table">
+            <tr><th>Parámetro</th><th>Unidad</th><th>Descripción</th><th>Rango típico</th></tr>
+            <tr><td><strong>Burden (B)</strong></td><td>m</td><td>Distancia a cara libre</td><td>4-10</td></tr>
+            <tr><td><strong>Espaciamiento (S)</strong></td><td>m</td><td>Distancia entre pozos en fila</td><td>5-12</td></tr>
+            <tr><td><strong>Taco (T)</strong></td><td>m</td><td>Longitud de material inerte superior</td><td>3-6</td></tr>
+            <tr><td><strong>Altura (H)</strong></td><td>m</td><td>Altura de banco</td><td>10-30</td></tr>
+            <tr><td><strong>Pasadura (J)</strong></td><td>m</td><td>Perforación bajo nivel de piso</td><td>1-3</td></tr>
+            <tr><td><strong>Diámetro (d)</strong></td><td>pulg</td><td>Diámetro de perforación</td><td>6.5-12.25</td></tr>
+        </table>
+        
+        <h3>3.4 Monte Carlo</h3>
+        <table class="param-table">
+            <tr><th>Parámetro</th><th>Default</th><th>Descripción</th></tr>
+            <tr><td><strong>n (uniformidad)</strong></td><td>1.2</td><td>Índice de uniformidad Rosin-Rammler</td></tr>
+            <tr><td><strong>Iteraciones</strong></td><td>500</td><td>Cantidad de simulaciones (100-5000)</td></tr>
+            <tr><td><strong>Variabilidad</strong></td><td>10%</td><td>Coeficiente de variación para perturbación</td></tr>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>🔷 4. Modelo Doble Taco</h2>
+        <p>El modelo doble taco simula una configuración con taco intermedio y 3 APDs, mejorando la distribución de energía y reduciendo el sobretamaño (P100).</p>
+        
+        <h3>Parámetros adicionales:</h3>
+        <table class="param-table">
+            <tr><th>Parámetro</th><th>Unidad</th><th>Descripción</th></tr>
+            <tr><td><strong>Altura Taco Int. (Ti)</strong></td><td>m</td><td>Longitud del taco intermedio de gravilla</td></tr>
+            <tr><td><strong>Posición Ti</strong></td><td>%</td><td>Ubicación del taco intermedio (0=arriba, 100=abajo)</td></tr>
+            <tr><td><strong>Eficiencia (η)</strong></td><td>0-1</td><td>Factor de eficiencia de distribución</td></tr>
+        </table>
+        
+        <div class="formula">
+            n_efectivo = n × Kn × [1 + β×(η_distribución - 1)]
+        </div>
+        
+        <div class="tip">
+            💡 <strong>Beneficio:</strong> El doble taco reduce típicamente el P100 en 15-25% al distribuir la energía más uniformemente.
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>🛡️ 5. Pozos Especiales (MLP)</h2>
+        <p>Configuración según Manual de Diseño Los Pelambres:</p>
+        
+        <h3>Ubicación espacial (talud → cara libre):</h3>
+        <p><code>Precorte → Borde → Buffer → Producción</code></p>
+        
+        <h3>Orden de detonación:</h3>
+        <table>
+            <tr><th>#</th><th>Tipo</th><th>Tiempo</th><th>Descripción</th></tr>
+            <tr><td>1°</td><td style="color:#8AD4EB;">Precorte</td><td>100 ms</td><td>Crea grieta de control antes de producción</td></tr>
+            <tr><td>2°</td><td style="color:#64CCC9;">Producción</td><td>5000 ms</td><td>Malla principal, secuencia en cuña "V"</td></tr>
+            <tr><td>3°</td><td style="color:#EAAA00;">Buffer</td><td>+45 ms/m</td><td>Transición, burden de alivio mayor</td></tr>
+            <tr><td>4°</td><td style="color:#D22630;">Borde</td><td>+55 ms/m</td><td>Última fila hacia talud</td></tr>
+        </table>
+        
+        <h3>Tiempos ajustables:</h3>
+        <p>Los tiempos de detonación son configurables en la sección de Pozos Especiales para adaptarse a diferentes condiciones de UGT.</p>
+    </div>
+
+    <div class="section">
+        <h2>🎲 6. Simulación Monte Carlo</h2>
+        
+        <h3>¿Qué hace?</h3>
+        <p>Genera N escenarios con perturbaciones aleatorias en X50 y n para cuantificar la incertidumbre inherente en las predicciones de fragmentación.</p>
+        
+        <div class="formula">
+            X50ᵢ = X50_nominal × (1 + σ × Zᵢ), donde Zᵢ ~ N(0,1)
+        </div>
+        
+        <h3>¿Por qué aporta?</h3>
+        <ul>
+            <li><strong>Realismo:</strong> Las tronaduras reales tienen variabilidad natural</li>
+            <li><strong>Rangos de confianza:</strong> Obtiene P80 ± intervalo de confianza</li>
+            <li><strong>Gestión de riesgo:</strong> Identifica peor caso (P95)</li>
+            <li><strong>Sensibilidad:</strong> Muestra qué parámetros afectan más la dispersión</li>
+        </ul>
+        
+        <h3>Interpretación del CV (Coeficiente de Variación):</h3>
+        <table>
+            <tr><th>CV</th><th>Interpretación</th><th>Acción</th></tr>
+            <tr><td>&lt;5%</td><td style="color:#64CCC9;">Baja incertidumbre</td><td>Resultados confiables</td></tr>
+            <tr><td>5-10%</td><td style="color:#fbbf24;">Moderada</td><td>Considere reducir variabilidad</td></tr>
+            <tr><td>&gt;10%</td><td style="color:#D22630;">Alta incertidumbre</td><td>Revise parámetros de entrada</td></tr>
+        </table>
+        
+        <h3>Recomendaciones de iteraciones:</h3>
+        <table>
+            <tr><th>Iteraciones</th><th>Error MC</th><th>Uso</th><th>Tiempo aprox.</th></tr>
+            <tr><td>100</td><td>~10%</td><td>Exploración rápida</td><td>&lt;1s</td></tr>
+            <tr><td>500</td><td>~4.5%</td><td>Diseño estándar ✓</td><td>1-2s</td></tr>
+            <tr><td>1000</td><td>~3.2%</td><td>Mayor precisión</td><td>2-3s</td></tr>
+            <tr><td>5000</td><td>~1.4%</td><td>Alta precisión</td><td>5-10s</td></tr>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>📈 7. Interpretación de Resultados</h2>
+        
+        <h3>7.1 Percentiles clave:</h3>
+        <table>
+            <tr><th>Percentil</th><th>Significado</th><th>Objetivo típico</th></tr>
+            <tr><td><strong>P10</strong></td><td>10% más fino que este tamaño</td><td>-</td></tr>
+            <tr><td><strong>P50 (X50)</strong></td><td>Tamaño medio de fragmentación</td><td>2-4"</td></tr>
+            <tr><td><strong>P80</strong></td><td>80% pasa, 20% retenido</td><td>≤4.5" (ideal para chancado)</td></tr>
+            <tr><td><strong>P100</strong></td><td>Tamaño máximo (sobretamaño)</td><td>≤12" (evitar bolones)</td></tr>
+        </table>
+        
+        <h3>7.2 Tabla Teórico vs Calibrado:</h3>
+        <p>Compara predicciones con Kx=1 (teórico) vs Kx calibrado. La brecha (Δ%) indica cuánto difiere la realidad del modelo base.</p>
+        
+        <h3>7.3 Distribución de Masa:</h3>
+        <p>Muestra tonelaje en cada rango de tamaño para planificación de chancado.</p>
+        
+        <h3>7.4 Análisis de Sensibilidad MC:</h3>
+        <p>Indica cómo cada parámetro afecta la dispersión de resultados:</p>
+        <ul>
+            <li><strong>↑A → ↑P80:</strong> Mayor factor de roca genera fragmentación más gruesa</li>
+            <li><strong>↓Kx → ↓P80:</strong> Kx menor indica fragmentación más fina que modelo base</li>
+            <li><strong>↑n → ↓dispersión:</strong> Mayor uniformidad reduce variabilidad de tamaños</li>
+            <li><strong>↑variabilidad → ↑incertidumbre:</strong> Mayor CV del input genera mayor rango de resultados</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>💾 8. Exportar y Guardar</h2>
+        
+        <h3>Guardar escenario:</h3>
+        <p>Almacena la configuración actual en memoria local para comparación posterior.</p>
+        
+        <h3>Exportar CSV:</h3>
+        <p>Descarga un archivo CSV con todos los parámetros y resultados para análisis en Excel.</p>
+        
+        <h3>Datos exportados:</h3>
+        <ul>
+            <li>Parámetros de roca (UCS, RQD, A, Kx, Kn)</li>
+            <li>Geometría (B, S, T, H, J, d)</li>
+            <li>Explosivo (tipo, VOD, densidad, RWS)</li>
+            <li>Resultados (X50, P80, P100, IC 95%)</li>
+            <li>Estadísticas Monte Carlo</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>⚠️ 9. Limitaciones y Precauciones</h2>
+        
+        <div class="warning">
+            <strong>El modelo Kuz-Ram tiene limitaciones conocidas:</strong>
+            <ul>
+                <li>No considera efectos de timing/secuencia en fragmentación</li>
+                <li>Asume roca homogénea e isotrópica</li>
+                <li>No modela interacción entre pozos adyacentes</li>
+                <li>Requiere calibración con datos de campo para precisión</li>
+            </ul>
+        </div>
+        
+        <div class="important">
+            <strong>Recomendaciones:</strong>
+            <ul>
+                <li>Siempre calibre Kx/Kn con datos de fragmentación real (Split, WipFrag)</li>
+                <li>Use el modelo como guía, no como predicción exacta</li>
+                <li>Compare resultados con histórico de tronaduras similares</li>
+                <li>Considere variabilidad geológica entre polígonos</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>📚 10. Referencias</h2>
+        <ul>
+            <li>Cunningham, C.V.B. (1983). "The Kuz-Ram Model for Prediction of Fragmentation from Blasting". ISEE.</li>
+            <li>Lilly, P.A. (1986). "An Empirical Method of Assessing Rock Mass Blastability". AusIMM.</li>
+            <li>Holmberg, R. & Persson, P.A. (1980). "Design of Tunnel Perimeter Blasthole Patterns".</li>
+            <li>Mundaca et al. (2015). "Calibración modelo Kuz-Ram en UGT-4 Chuquicamata".</li>
+            <li>ENAEX (2020). "Manual Técnico de Explosivos".</li>
+            <li>Rosin, P. & Rammler, E. (1933). "Laws Governing the Fineness of Powdered Coal".</li>
+            <li>Manual de Diseño P&T Los Pelambres (Sep-Nov 2025).</li>
+        </ul>
+    </div>
+
+    <div style="text-align: center; margin-top: 30px; padding: 15px; border-top: 1px solid #475569;">
+        <p style="color: #6b7280; font-size: 12px;">
+            Pilix v3.6 | Desarrollado para Minera Los Pelambres<br>
+            Basado en modelo Kuz-Ram con calibración Mundaca | Explosivos ENAEX
+        </p>
+    </div>
+</body>
+</html>
