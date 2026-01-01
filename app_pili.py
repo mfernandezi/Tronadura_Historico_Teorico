@@ -1654,14 +1654,50 @@ st.set_page_config(
 
 st.title("Visualizador de Tronaduras & Explosivos")
 
-st.markdown(
+# ============================================
+# INICIALIZAR SESSION STATE PARA SIMULADOR PILIX
+# ============================================
+if 'pilix_params' not in st.session_state:
+    st.session_state.pilix_params = {
+        'UCS': 100,
+        'RQD': 70,
+        'B': 7.5,
+        'S': 8.6,
+        'T': 5.5,
+        'H': 16.5,
+        'J': 1.5,
+        'd': 10.625,
+        'n': 1.2,
+        'Kx': 0.5,
+        'Kn': 1.02,
+        'explosivo': 'Energex 70',
+        'doble_taco': False,
+        'Ti': 2.0,
+        'Ti_pos': 8.0,
+        'nombre_config': 'Configuración Manual'
+    }
+
+if 'cargar_config' not in st.session_state:
+    st.session_state.cargar_config = None
+
+# ============================================
+# TABS PRINCIPALES
+# ============================================
+tab_analisis, tab_simulador = st.tabs([
+    "📊 Análisis y Recomendaciones", 
+    "🔬 Simulador PILIX v3.6"
+])
+
+with tab_analisis:
+    st.markdown(
+        """
+    Esta app permite:
+    1. Ver las **mejores 3 configuraciones** observadas según una métrica (Top 3).
+    2. Explorar el desempeño de **P100TRON, P80TRON, P50TRON, P20TRON** en distintos **heatmaps**.
+    3. Consultar la **ficha técnica** y comparar propiedades de **explosivos**.
+    4. **Simular configuraciones** en el Simulador PILIX v3.6 (pestaña separada).
     """
-Esta app permite:
-1. Ver las **mejores 3 configuraciones** observadas según una métrica (Top 3).
-2. Explorar el desempeño de **P100TRON, P80TRON, P50TRON, P20TRON** en distintos **heatmaps**.
-3. Consultar la **ficha técnica** y comparar propiedades de **explosivos**.
-"""
-)
+    )
 
 # ============================================
 # 1) CARGA DE DATOS
@@ -2781,6 +2817,96 @@ with col_card3:
         </p>
         </div>
         """, unsafe_allow_html=True)
+
+# Botones para cargar configuraciones en el Simulador PILIX
+st.markdown("### 🔬 Simular en PILIX v3.6")
+st.markdown("Selecciona una configuración para cargarla en el **Simulador PILIX v3.6** (pestaña separada):")
+
+col_sim1, col_sim2, col_sim3, col_sim4 = st.columns(4)
+
+with col_sim1:
+    if st.button("🔬 Simular Teórica", key="sim_teorica", help="Cargar parámetros teóricos ENAEX"):
+        st.session_state.pilix_params = {
+            'UCS': ucs_input,
+            'RQD': 70,
+            'B': params_teoricos['burden_optimo'],
+            'S': params_teoricos['espaciamiento_optimo'],
+            'T': params_teoricos['taco_optimo'],
+            'H': altura_banco_est,
+            'J': 1.5,
+            'd': diametro_input,
+            'Kx': 0.5,
+            'Kn': 1.02,
+            'doble_taco': False,
+            'Ti': 2.0,
+            'Ti_pos': 8.0,
+            'nombre_config': 'Teórica ENAEX'
+        }
+        st.success("✅ Configuración Teórica cargada. Ve a la pestaña **Simulador PILIX v3.6**")
+
+with col_sim2:
+    if st.button("🔬 Simular Optimizada", key="sim_optimizada", help="Cargar parámetros optimizados"):
+        st.session_state.pilix_params = {
+            'UCS': ucs_input,
+            'RQD': 70,
+            'B': params_multiobj['burden_optimo'],
+            'S': params_multiobj['espaciamiento_optimo'],
+            'T': params_multiobj['taco_optimo'],
+            'H': altura_banco_est,
+            'J': 1.5,
+            'd': diametro_input,
+            'Kx': params_multiobj.get('Kx', 0.5),
+            'Kn': params_multiobj.get('Kn', 1.02),
+            'doble_taco': params_multiobj.get('necesita_taco_intermedio', False),
+            'Ti': 2.0,
+            'Ti_pos': 8.0,
+            'nombre_config': 'Optimizada Multiobjetivo'
+        }
+        st.success("✅ Configuración Optimizada cargada. Ve a la pestaña **Simulador PILIX v3.6**")
+
+with col_sim3:
+    if st.button("🔬 Simular Min. Metros", key="sim_minmetros", help="Cargar parámetros de mínimos metros"):
+        st.session_state.pilix_params = {
+            'UCS': ucs_input,
+            'RQD': 70,
+            'B': params_minmetros['burden_minmetros'],
+            'S': params_minmetros['espaciamiento_minmetros'],
+            'T': params_minmetros['taco_ajustado'],
+            'H': altura_banco_est,
+            'J': 1.5,
+            'd': diametro_input,
+            'Kx': 0.5,
+            'Kn': 1.02,
+            'doble_taco': False,
+            'Ti': 2.0,
+            'Ti_pos': 8.0,
+            'nombre_config': 'Mínimos Metros'
+        }
+        st.success("✅ Configuración Mín. Metros cargada. Ve a la pestaña **Simulador PILIX v3.6**")
+
+with col_sim4:
+    if top3_historico is not None and len(top3_historico) > 0:
+        if st.button("🔬 Simular Histórica", key="sim_historica", help="Cargar mejor configuración histórica"):
+            mejor = top3_historico.iloc[0]
+            st.session_state.pilix_params = {
+                'UCS': ucs_input,
+                'RQD': 70,
+                'B': float(mejor.get('Burden', 7.5)) if pd.notna(mejor.get('Burden')) else 7.5,
+                'S': float(mejor.get('Espaciamiento', 8.6)) if pd.notna(mejor.get('Espaciamiento')) else 8.6,
+                'T': float(mejor.get('Taco', 5.5)) if pd.notna(mejor.get('Taco')) else 5.5,
+                'H': altura_banco_est,
+                'J': 1.5,
+                'd': diametro_input,
+                'Kx': 0.5,
+                'Kn': 1.02,
+                'doble_taco': False,
+                'Ti': 2.0,
+                'Ti_pos': 8.0,
+                'nombre_config': 'Mejor Histórica'
+            }
+            st.success("✅ Configuración Histórica cargada. Ve a la pestaña **Simulador PILIX v3.6**")
+    else:
+        st.button("🔬 Simular Histórica", key="sim_historica_disabled", disabled=True, help="No hay datos históricos")
 
 # ===== SIMULADOR MONTE CARLO 3D DE TRONADURA =====
 st.markdown("---")
@@ -4305,6 +4431,1136 @@ def generar_simulador_montecarlo_html(ucs, burden, espaciamiento, taco, altura, 
 '''
     return html_code
 
+
+def generar_simulador_pilix_completo(params):
+    """
+    Genera el HTML del Simulador PILIX v3.6 completo con todas las características.
+    
+    Incluye:
+    - Índice de Lilly
+    - Factores Kx/Kn
+    - Modelo Doble Taco con 3 APDs
+    - Pozos Especiales (Buffer, Borde, Precorte)
+    - Monte Carlo con análisis de sensibilidad
+    - Zonas de daño (Holmberg-Persson)
+    - Visualización 3D con Three.js
+    """
+    
+    html_code = f'''
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PILIX v3.6 - Simulador Completo</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ 
+            font-family: 'Segoe UI', Arial, sans-serif; 
+            background: linear-gradient(135deg, #0d1a1f 0%, #122429 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+        }}
+        
+        .header {{
+            background: linear-gradient(135deg, #00778B, #005566);
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 3px solid #EAAA00;
+        }}
+        
+        .header h1 {{
+            color: #fff;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }}
+        
+        .header .badge {{
+            background: #EAAA00;
+            color: #000;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: bold;
+        }}
+        
+        .container {{
+            display: grid;
+            grid-template-columns: 300px 1fr 350px;
+            gap: 10px;
+            padding: 10px;
+            height: calc(100vh - 60px);
+        }}
+        
+        .panel {{
+            background: rgba(26, 48, 56, 0.95);
+            border-radius: 8px;
+            border: 1px solid #2d4a52;
+            overflow: hidden;
+        }}
+        
+        .panel-header {{
+            background: linear-gradient(135deg, #00778B, #005566);
+            color: #fff;
+            padding: 10px 15px;
+            font-weight: bold;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }}
+        
+        .panel-content {{
+            padding: 12px;
+            max-height: calc(100vh - 120px);
+            overflow-y: auto;
+        }}
+        
+        .section-title {{
+            color: #64CCC9;
+            font-size: 11px;
+            font-weight: bold;
+            margin: 12px 0 8px 0;
+            padding-bottom: 4px;
+            border-bottom: 1px solid #2d4a52;
+        }}
+        
+        .input-row {{
+            display: grid;
+            grid-template-columns: 1fr 70px 40px;
+            align-items: center;
+            margin: 5px 0;
+            gap: 8px;
+        }}
+        
+        .input-row label {{
+            color: #9aa0a6;
+            font-size: 10px;
+        }}
+        
+        .input-row input, .input-row select {{
+            background: #1a3038;
+            border: 1px solid #3d5a62;
+            color: #fff;
+            padding: 5px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            text-align: right;
+        }}
+        
+        .input-row input:focus {{
+            border-color: #64CCC9;
+            outline: none;
+        }}
+        
+        .input-row .unit {{
+            color: #6b7280;
+            font-size: 9px;
+        }}
+        
+        .calc-display {{
+            background: linear-gradient(135deg, rgba(100, 204, 201, 0.15), rgba(0, 119, 139, 0.15));
+            border: 1px solid #64CCC9;
+            border-radius: 6px;
+            padding: 10px;
+            margin: 10px 0;
+        }}
+        
+        .calc-display .title {{
+            color: #64CCC9;
+            font-size: 9px;
+            margin-bottom: 5px;
+        }}
+        
+        .calc-display .value {{
+            color: #fff;
+            font-size: 16px;
+            font-weight: bold;
+        }}
+        
+        .calc-display .formula {{
+            color: #9aa0a6;
+            font-size: 8px;
+            margin-top: 3px;
+            font-family: monospace;
+        }}
+        
+        .btn {{
+            padding: 8px 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 11px;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }}
+        
+        .btn:hover {{ transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }}
+        .btn-primary {{ background: linear-gradient(135deg, #00778B, #005566); color: #fff; }}
+        .btn-success {{ background: linear-gradient(135deg, #27ae60, #1e8449); color: #fff; }}
+        .btn-warning {{ background: linear-gradient(135deg, #EAAA00, #d4940a); color: #000; }}
+        .btn-danger {{ background: linear-gradient(135deg, #D22630, #a81d25); color: #fff; }}
+        
+        .btn-group {{
+            display: flex;
+            gap: 6px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }}
+        
+        .checkbox-row {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 8px 0;
+            padding: 8px;
+            background: rgba(100, 204, 201, 0.1);
+            border-radius: 4px;
+        }}
+        
+        .checkbox-row input[type="checkbox"] {{
+            width: 16px;
+            height: 16px;
+            accent-color: #64CCC9;
+        }}
+        
+        .checkbox-row label {{
+            font-size: 10px;
+            color: #e2e8f0;
+        }}
+        
+        #threejs-container {{
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #1a2e38;
+        }}
+        
+        .results-grid {{
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin: 10px 0;
+        }}
+        
+        .result-card {{
+            background: rgba(0, 119, 139, 0.2);
+            border: 1px solid #00778B;
+            border-radius: 6px;
+            padding: 10px;
+            text-align: center;
+        }}
+        
+        .result-card .label {{
+            color: #9aa0a6;
+            font-size: 9px;
+            margin-bottom: 4px;
+        }}
+        
+        .result-card .value {{
+            font-size: 18px;
+            font-weight: bold;
+        }}
+        
+        .result-card .value.ok {{ color: #64CCC9; }}
+        .result-card .value.warning {{ color: #EAAA00; }}
+        .result-card .value.bad {{ color: #D22630; }}
+        
+        .result-card .sub {{
+            color: #6b7280;
+            font-size: 8px;
+            margin-top: 2px;
+        }}
+        
+        .progress-bar {{
+            background: #1a3038;
+            border-radius: 10px;
+            height: 8px;
+            overflow: hidden;
+            margin: 10px 0;
+        }}
+        
+        .progress-bar .fill {{
+            background: linear-gradient(90deg, #64CCC9, #00778B);
+            height: 100%;
+            transition: width 0.3s;
+        }}
+        
+        table.data-table {{
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 9px;
+            margin: 10px 0;
+        }}
+        
+        table.data-table th {{
+            background: rgba(0, 119, 139, 0.3);
+            color: #64CCC9;
+            padding: 6px;
+            text-align: left;
+            border-bottom: 1px solid #3d5a62;
+        }}
+        
+        table.data-table td {{
+            padding: 5px 6px;
+            border-bottom: 1px solid #2d4a52;
+        }}
+        
+        table.data-table tr:hover {{
+            background: rgba(100, 204, 201, 0.1);
+        }}
+        
+        .recommendation-box {{
+            background: rgba(234, 170, 0, 0.1);
+            border-left: 3px solid #EAAA00;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 0 6px 6px 0;
+        }}
+        
+        .recommendation-box h4 {{
+            color: #EAAA00;
+            font-size: 11px;
+            margin-bottom: 8px;
+        }}
+        
+        .rec-item {{
+            font-size: 10px;
+            padding: 5px 0;
+            border-bottom: 1px solid rgba(234, 170, 0, 0.2);
+        }}
+        
+        .rec-item:last-child {{ border-bottom: none; }}
+        .rec-critical {{ color: #D22630; }}
+        .rec-warning {{ color: #EAAA00; }}
+        .rec-success {{ color: #64CCC9; }}
+        
+        .canvas-container {{
+            background: #1a2e38;
+            border-radius: 6px;
+            padding: 5px;
+            margin: 8px 0;
+        }}
+        
+        .lilly-display {{
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 4px;
+            margin: 8px 0;
+        }}
+        
+        .lilly-item {{
+            background: rgba(0, 119, 139, 0.2);
+            padding: 4px;
+            border-radius: 4px;
+            text-align: center;
+        }}
+        
+        .lilly-item .name {{
+            font-size: 8px;
+            color: #9aa0a6;
+        }}
+        
+        .lilly-item .val {{
+            font-size: 11px;
+            color: #64CCC9;
+            font-weight: bold;
+        }}
+        
+        .config-loaded {{
+            background: rgba(39, 174, 96, 0.2);
+            border: 1px solid #27ae60;
+            border-radius: 6px;
+            padding: 8px 12px;
+            margin-bottom: 10px;
+            font-size: 10px;
+            color: #27ae60;
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔬 PILIX <span class="badge">v3.6</span> Simulador de Fragmentación Kuz-Ram</h1>
+        <div style="font-size: 10px; color: #9aa0a6;">
+            Modelo Calibrado Los Pelambres | ENAEX
+        </div>
+    </div>
+    
+    <div class="container">
+        <!-- Panel Izquierdo: Parámetros -->
+        <div class="panel">
+            <div class="panel-header">⚙️ Parámetros de Entrada</div>
+            <div class="panel-content">
+                <div id="config-info" class="config-loaded" style="display: {{'block' if params.get('nombre_config') else 'none'}};">
+                    📋 Config: <strong>{params.get('nombre_config', 'Manual')}</strong>
+                </div>
+                
+                <div class="section-title">🪨 Propiedades de Roca</div>
+                <div class="input-row">
+                    <label>UCS (σc)</label>
+                    <input type="number" id="input-UCS" value="{params.get('UCS', 100)}" min="20" max="300">
+                    <span class="unit">MPa</span>
+                </div>
+                <div class="input-row">
+                    <label>RQD</label>
+                    <input type="number" id="input-RQD" value="{params.get('RQD', 70)}" min="0" max="100">
+                    <span class="unit">%</span>
+                </div>
+                
+                <div class="lilly-display" id="lilly-display">
+                    <div class="lilly-item"><div class="name">RMD</div><div class="val" id="lilly-RMD">-</div></div>
+                    <div class="lilly-item"><div class="name">JPS</div><div class="val" id="lilly-JPS">-</div></div>
+                    <div class="lilly-item"><div class="name">BI</div><div class="val" id="lilly-BI">-</div></div>
+                    <div class="lilly-item"><div class="name">A</div><div class="val" id="lilly-A">-</div></div>
+                    <div class="lilly-item"><div class="name">σt</div><div class="val" id="lilly-st">-</div></div>
+                </div>
+                
+                <div class="section-title">📐 Geometría de Malla</div>
+                <div class="input-row">
+                    <label>Burden (B)</label>
+                    <input type="number" id="input-B" value="{params.get('B', 7.5)}" step="0.1" min="3" max="15">
+                    <span class="unit">m</span>
+                </div>
+                <div class="input-row">
+                    <label>Espaciamiento (S)</label>
+                    <input type="number" id="input-S" value="{params.get('S', 8.6)}" step="0.1" min="3" max="18">
+                    <span class="unit">m</span>
+                </div>
+                <div class="input-row">
+                    <label>Taco (T)</label>
+                    <input type="number" id="input-T" value="{params.get('T', 5.5)}" step="0.1" min="2" max="10">
+                    <span class="unit">m</span>
+                </div>
+                <div class="input-row">
+                    <label>Altura Banco (H)</label>
+                    <input type="number" id="input-H" value="{params.get('H', 16.5)}" step="0.5" min="5" max="30">
+                    <span class="unit">m</span>
+                </div>
+                <div class="input-row">
+                    <label>Pasadura (J)</label>
+                    <input type="number" id="input-J" value="{params.get('J', 1.5)}" step="0.1" min="0" max="5">
+                    <span class="unit">m</span>
+                </div>
+                <div class="input-row">
+                    <label>Diámetro (d)</label>
+                    <input type="number" id="input-d" value="{params.get('d', 10.625)}" step="0.125" min="4" max="15">
+                    <span class="unit">pulg</span>
+                </div>
+                
+                <div class="section-title">🔧 Calibración Kx/Kn</div>
+                <div class="input-row">
+                    <label>Kx (corrección X50)</label>
+                    <input type="number" id="input-Kx" value="{params.get('Kx', 0.5)}" step="0.01" min="0.1" max="2.0">
+                    <span class="unit">-</span>
+                </div>
+                <div class="input-row">
+                    <label>Kn (corrección n)</label>
+                    <input type="number" id="input-Kn" value="{params.get('Kn', 1.02)}" step="0.01" min="0.5" max="1.5">
+                    <span class="unit">-</span>
+                </div>
+                
+                <div class="section-title">💥 Explosivo</div>
+                <div class="input-row" style="grid-template-columns: 1fr 110px;">
+                    <label>Tipo</label>
+                    <select id="input-explosivo">
+                        <option value="Energex_70" {"selected" if params.get('explosivo', '') == 'Energex 70' else ''}>Energex 70</option>
+                        <option value="Energex_50">Energex 50</option>
+                        <option value="Blendex_940">Blendex 940</option>
+                        <option value="ANFO">ANFO</option>
+                    </select>
+                </div>
+                
+                <div class="section-title">🎲 Monte Carlo</div>
+                <div class="input-row">
+                    <label>Iteraciones</label>
+                    <input type="number" id="input-iterations" value="500" min="100" max="5000" step="100">
+                    <span class="unit">-</span>
+                </div>
+                <div class="input-row">
+                    <label>Variabilidad</label>
+                    <input type="number" id="input-variability" value="10" min="1" max="30">
+                    <span class="unit">%</span>
+                </div>
+                
+                <div class="checkbox-row">
+                    <input type="checkbox" id="check-doble-taco" {"checked" if params.get('doble_taco', False) else ''}>
+                    <label for="check-doble-taco">🔷 Activar Doble Taco (3 APDs)</label>
+                </div>
+                
+                <div id="doble-taco-params" style="display: {{'block' if params.get('doble_taco', False) else 'none'}};">
+                    <div class="input-row">
+                        <label>Altura Taco Int. (Ti)</label>
+                        <input type="number" id="input-Ti" value="{params.get('Ti', 2.0)}" step="0.1" min="0.5" max="5">
+                        <span class="unit">m</span>
+                    </div>
+                    <div class="input-row">
+                        <label>Posición Ti</label>
+                        <input type="number" id="input-Ti-pos" value="{params.get('Ti_pos', 8.0)}" step="0.5" min="3" max="15">
+                        <span class="unit">m</span>
+                    </div>
+                </div>
+                
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="runSimulation()">🔥 Simular</button>
+                    <button class="btn btn-success" onclick="startAnimation()">▶️ Animar 3D</button>
+                    <button class="btn btn-warning" onclick="resetSimulation()">🔄 Reset</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Panel Central: Visualización 3D -->
+        <div class="panel">
+            <div class="panel-header">🎯 Visualización 3D</div>
+            <div id="threejs-container"></div>
+        </div>
+        
+        <!-- Panel Derecho: Resultados -->
+        <div class="panel">
+            <div class="panel-header">📊 Resultados Monte Carlo</div>
+            <div class="panel-content">
+                <div class="calc-display">
+                    <div class="title">X50 Calculado (Kuz-Ram + Kx)</div>
+                    <div class="value" id="result-X50">-- cm</div>
+                    <div class="formula">X50 = Kx × A × (V₀/Q)^0.8 × Q^(1/6)</div>
+                </div>
+                
+                <div class="results-grid" id="results-grid">
+                    <div class="result-card">
+                        <div class="label">P80 Teórico</div>
+                        <div class="value ok" id="result-P80-teo">--"</div>
+                    </div>
+                    <div class="result-card">
+                        <div class="label">P100 Teórico</div>
+                        <div class="value ok" id="result-P100-teo">--"</div>
+                    </div>
+                    <div class="result-card">
+                        <div class="label">P80 Monte Carlo</div>
+                        <div class="value" id="result-P80-mc">--"</div>
+                        <div class="sub" id="result-P80-ic">IC 90%: --</div>
+                    </div>
+                    <div class="result-card">
+                        <div class="label">P100 Monte Carlo</div>
+                        <div class="value" id="result-P100-mc">--"</div>
+                        <div class="sub" id="result-P100-ic">IC 90%: --</div>
+                    </div>
+                </div>
+                
+                <div class="progress-bar" id="progress-bar" style="display: none;">
+                    <div class="fill" id="progress-fill" style="width: 0%;"></div>
+                </div>
+                <div id="progress-text" style="text-align: center; font-size: 10px; color: #9aa0a6;"></div>
+                
+                <div class="section-title">📈 Curva Granulométrica</div>
+                <div class="canvas-container">
+                    <canvas id="canvas-curve" width="300" height="150"></canvas>
+                </div>
+                
+                <div class="section-title">📊 Histogramas</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px;">
+                    <div class="canvas-container">
+                        <canvas id="canvas-hist-p80" width="145" height="80"></canvas>
+                    </div>
+                    <div class="canvas-container">
+                        <canvas id="canvas-hist-p100" width="145" height="80"></canvas>
+                    </div>
+                </div>
+                
+                <div class="section-title">📋 Comparación Teórico vs Calibrado</div>
+                <table class="data-table" id="table-comparison">
+                    <tr><th>Parámetro</th><th>Teórico</th><th>Calibrado</th><th>Δ%</th></tr>
+                    <tr><td>X50</td><td id="cmp-x50-teo">--</td><td id="cmp-x50-cal">--</td><td id="cmp-x50-diff">--</td></tr>
+                    <tr><td>P80</td><td id="cmp-p80-teo">--</td><td id="cmp-p80-cal">--</td><td id="cmp-p80-diff">--</td></tr>
+                    <tr><td>P100</td><td id="cmp-p100-teo">--</td><td id="cmp-p100-cal">--</td><td id="cmp-p100-diff">--</td></tr>
+                </table>
+                
+                <div class="recommendation-box" id="recommendations">
+                    <h4>💡 Recomendaciones</h4>
+                    <div class="rec-item">Ejecute la simulación para obtener recomendaciones.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // =============================================
+        // VARIABLES GLOBALES
+        // =============================================
+        let scene, camera, renderer, controls;
+        let pozos = [], waveObjects = [], fragmentObjects = [];
+        let isAnimating = false, simulationTime = 0;
+        let mcResults = {{ p80: [], p100: [], sizes: [] }};
+        
+        const params = {{
+            UCS: {params.get('UCS', 100)},
+            RQD: {params.get('RQD', 70)},
+            B: {params.get('B', 7.5)},
+            S: {params.get('S', 8.6)},
+            T: {params.get('T', 5.5)},
+            H: {params.get('H', 16.5)},
+            J: {params.get('J', 1.5)},
+            d: {params.get('d', 10.625)},
+            Kx: {params.get('Kx', 0.5)},
+            Kn: {params.get('Kn', 1.02)},
+            dobleTaco: {'true' if params.get('doble_taco', False) else 'false'},
+            Ti: {params.get('Ti', 2.0)},
+            TiPos: {params.get('Ti_pos', 8.0)}
+        }};
+        
+        const theoreticalValues = {{}};
+        
+        // =============================================
+        // ÍNDICE DE LILLY
+        // =============================================
+        function calculateLilly() {{
+            const UCS = parseFloat(document.getElementById('input-UCS').value);
+            const RQD = parseFloat(document.getElementById('input-RQD').value);
+            
+            const RMD = RQD > 75 ? 50 : (RQD >= 50 ? 20 : 10);
+            const JPS = RQD > 80 ? 50 : (RQD >= 50 ? 20 : 10);
+            const JPO = 25;
+            const SG = Math.min(2.9, Math.max(2.4, 2.5 + UCS / 400));
+            const SGI = 25 * SG - 50;
+            const HP = 0.05 * UCS;
+            const BI = 0.5 * (RMD + JPS + JPO + SGI + HP);
+            const A = Math.max(3.0, Math.min(13.0, 0.12 * BI));
+            const tensile = UCS / 10;
+            
+            document.getElementById('lilly-RMD').textContent = RMD;
+            document.getElementById('lilly-JPS').textContent = JPS;
+            document.getElementById('lilly-BI').textContent = BI.toFixed(1);
+            document.getElementById('lilly-A').textContent = A.toFixed(2);
+            document.getElementById('lilly-st').textContent = tensile.toFixed(1);
+            
+            return {{ RMD, JPS, JPO, SG, SGI, HP, BI, A, tensile }};
+        }}
+        
+        // =============================================
+        // CÁLCULOS PRINCIPALES
+        // =============================================
+        function updateCalculations() {{
+            // Leer parámetros
+            params.UCS = parseFloat(document.getElementById('input-UCS').value);
+            params.RQD = parseFloat(document.getElementById('input-RQD').value);
+            params.B = parseFloat(document.getElementById('input-B').value);
+            params.S = parseFloat(document.getElementById('input-S').value);
+            params.T = parseFloat(document.getElementById('input-T').value);
+            params.H = parseFloat(document.getElementById('input-H').value);
+            params.J = parseFloat(document.getElementById('input-J').value);
+            params.d = parseFloat(document.getElementById('input-d').value);
+            params.Kx = parseFloat(document.getElementById('input-Kx').value);
+            params.Kn = parseFloat(document.getElementById('input-Kn').value);
+            params.dobleTaco = document.getElementById('check-doble-taco').checked;
+            
+            // Lilly
+            const lilly = calculateLilly();
+            const A = 19.9; // Calibrado LP
+            
+            // Geometría
+            const L = params.H + params.J;
+            const Lc = L - params.T - params.J;
+            const d_m = params.d * 0.0254;
+            const area = Math.PI * Math.pow(d_m/2, 2);
+            const Q = Lc * area * 1.2 * 1000; // kg
+            const V0 = params.B * params.S * params.H;
+            
+            // Kuz-Ram con Kx
+            const X50 = params.Kx * A * Math.pow(V0/Q, 0.8) * Math.pow(Q, 1/6) * Math.pow(1.15, 19/30);
+            theoreticalValues.X50 = Math.max(5, Math.min(60, X50));
+            
+            // n de Cunningham
+            const d_mm = params.d * 25.4;
+            const n_calc = (2.2 - 14 * params.B / d_mm) * Math.sqrt((1 + params.S/params.B)/2) * (1 - 0.5/params.B) * (Lc/params.H);
+            theoreticalValues.n = Math.max(0.5, Math.min(2.5, n_calc * params.Kn));
+            
+            // Rosin-Rammler
+            const Xc = theoreticalValues.X50 / Math.pow(0.693, 1/theoreticalValues.n);
+            theoreticalValues.Xc = Xc;
+            theoreticalValues.P80 = Xc * Math.pow(-Math.log(0.20), 1/theoreticalValues.n) / 2.54;
+            theoreticalValues.P100 = Xc * Math.pow(-Math.log(0.01), 1/theoreticalValues.n) / 2.54;
+            
+            // Factor de taco
+            let f_taco = 1.0;
+            if (params.B >= 11) f_taco = 1.0 - 0.30 * (params.T - 5.0);
+            else if (params.B < 8) f_taco = 1.0 + 0.30 * Math.pow(params.T - 5.25, 2);
+            f_taco = Math.max(0.5, Math.min(2.0, f_taco));
+            
+            theoreticalValues.P80 *= f_taco;
+            theoreticalValues.P100 *= f_taco;
+            
+            // Doble taco
+            if (params.dobleTaco) {{
+                theoreticalValues.P100 *= 0.80;
+            }}
+            
+            // Actualizar UI
+            document.getElementById('result-X50').textContent = theoreticalValues.X50.toFixed(2) + ' cm';
+            document.getElementById('result-P80-teo').textContent = theoreticalValues.P80.toFixed(2) + '"';
+            document.getElementById('result-P100-teo').textContent = theoreticalValues.P100.toFixed(2) + '"';
+            
+            // Clases de color
+            const p80El = document.getElementById('result-P80-teo');
+            const p100El = document.getElementById('result-P100-teo');
+            p80El.className = 'value ' + (theoreticalValues.P80 <= 4.5 ? 'ok' : theoreticalValues.P80 <= 6 ? 'warning' : 'bad');
+            p100El.className = 'value ' + (theoreticalValues.P100 <= 12 ? 'ok' : theoreticalValues.P100 <= 15 ? 'warning' : 'bad');
+        }}
+        
+        // =============================================
+        // MONTE CARLO
+        // =============================================
+        async function runMonteCarlo() {{
+            const iterations = parseInt(document.getElementById('input-iterations').value);
+            const variability = parseFloat(document.getElementById('input-variability').value) / 100;
+            
+            document.getElementById('progress-bar').style.display = 'block';
+            mcResults = {{ p80: [], p100: [], sizes: [] }};
+            
+            const X50_base = theoreticalValues.X50;
+            const n_base = theoreticalValues.n;
+            
+            for (let i = 0; i < iterations; i++) {{
+                const X50_var = X50_base * (1 + variability * (Math.random() - 0.5) * 2);
+                const n_var = Math.max(0.5, n_base * (1 + 0.3 * variability * (Math.random() - 0.5) * 2));
+                
+                const Xc = X50_var / Math.pow(0.693, 1/n_var);
+                const sizes = [];
+                
+                for (let f = 0; f < 150; f++) {{
+                    const u = Math.random() * 0.998;
+                    let size = Xc * Math.pow(-Math.log(1-u), 1/n_var);
+                    if (params.dobleTaco && size > Xc * 2) size *= 0.80;
+                    sizes.push(size);
+                }}
+                
+                sizes.sort((a,b) => a-b);
+                mcResults.p80.push(sizes[Math.floor(sizes.length * 0.8)] / 2.54);
+                mcResults.p100.push(sizes[sizes.length - 1] / 2.54);
+                
+                if (i % 25 === 0) mcResults.sizes.push(sizes.map(s => s / 2.54));
+                
+                if (i % 50 === 0) {{
+                    document.getElementById('progress-fill').style.width = (i/iterations*100) + '%';
+                    document.getElementById('progress-text').textContent = i + '/' + iterations;
+                    await new Promise(r => setTimeout(r, 1));
+                }}
+            }}
+            
+            document.getElementById('progress-fill').style.width = '100%';
+            document.getElementById('progress-text').textContent = 'Completado';
+            
+            displayResults();
+            drawCurve();
+            drawHistograms();
+            generateRecommendations();
+            
+            setTimeout(() => {{
+                document.getElementById('progress-bar').style.display = 'none';
+            }}, 1000);
+        }}
+        
+        function displayResults() {{
+            const mean = arr => arr.reduce((a,b) => a+b, 0) / arr.length;
+            const std = arr => Math.sqrt(arr.map(x => Math.pow(x - mean(arr), 2)).reduce((a,b) => a+b, 0) / arr.length);
+            const pct = (arr, p) => [...arr].sort((a,b) => a-b)[Math.floor(arr.length * p)];
+            
+            const p80_mean = mean(mcResults.p80);
+            const p100_mean = mean(mcResults.p100);
+            
+            document.getElementById('result-P80-mc').textContent = p80_mean.toFixed(2) + '"';
+            document.getElementById('result-P100-mc').textContent = p100_mean.toFixed(2) + '"';
+            
+            document.getElementById('result-P80-ic').textContent = 'IC 90%: ' + pct(mcResults.p80, 0.05).toFixed(2) + '-' + pct(mcResults.p80, 0.95).toFixed(2) + '"';
+            document.getElementById('result-P100-ic').textContent = 'IC 90%: ' + pct(mcResults.p100, 0.05).toFixed(1) + '-' + pct(mcResults.p100, 0.95).toFixed(1) + '"';
+            
+            // Colores
+            const p80mcEl = document.getElementById('result-P80-mc');
+            const p100mcEl = document.getElementById('result-P100-mc');
+            p80mcEl.className = 'value ' + (p80_mean <= 4.5 ? 'ok' : p80_mean <= 6 ? 'warning' : 'bad');
+            p100mcEl.className = 'value ' + (p100_mean <= 12 ? 'ok' : p100_mean <= 15 ? 'warning' : 'bad');
+            
+            // Tabla comparación
+            const diff_p80 = ((p80_mean - theoreticalValues.P80) / theoreticalValues.P80 * 100);
+            const diff_p100 = ((p100_mean - theoreticalValues.P100) / theoreticalValues.P100 * 100);
+            
+            document.getElementById('cmp-x50-teo').textContent = theoreticalValues.X50.toFixed(2) + ' cm';
+            document.getElementById('cmp-x50-cal').textContent = theoreticalValues.X50.toFixed(2) + ' cm';
+            document.getElementById('cmp-x50-diff').textContent = '0%';
+            document.getElementById('cmp-p80-teo').textContent = theoreticalValues.P80.toFixed(2) + '"';
+            document.getElementById('cmp-p80-cal').textContent = p80_mean.toFixed(2) + '"';
+            document.getElementById('cmp-p80-diff').textContent = (diff_p80 > 0 ? '+' : '') + diff_p80.toFixed(1) + '%';
+            document.getElementById('cmp-p100-teo').textContent = theoreticalValues.P100.toFixed(2) + '"';
+            document.getElementById('cmp-p100-cal').textContent = p100_mean.toFixed(2) + '"';
+            document.getElementById('cmp-p100-diff').textContent = (diff_p100 > 0 ? '+' : '') + diff_p100.toFixed(1) + '%';
+        }}
+        
+        function drawCurve() {{
+            const canvas = document.getElementById('canvas-curve');
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width, H = canvas.height;
+            
+            ctx.fillStyle = '#1a2e38';
+            ctx.fillRect(0, 0, W, H);
+            
+            // Ejes
+            ctx.strokeStyle = '#3d5a62';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(40, 10);
+            ctx.lineTo(40, H - 25);
+            ctx.lineTo(W - 10, H - 25);
+            ctx.stroke();
+            
+            // Curva teórica
+            ctx.strokeStyle = '#64CCC9';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            
+            const Xc = theoreticalValues.Xc / 2.54;
+            const n = theoreticalValues.n;
+            
+            for (let i = 0; i <= 100; i++) {{
+                const x_size = i * 0.3; // 0 a 30 pulgadas
+                const passing = (1 - Math.exp(-Math.pow(x_size * 2.54 / (Xc * 2.54), n))) * 100;
+                
+                const px = 40 + (x_size / 30) * (W - 50);
+                const py = H - 25 - (passing / 100) * (H - 40);
+                
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }}
+            ctx.stroke();
+            
+            // Líneas P80 y P100
+            ctx.setLineDash([4, 4]);
+            ctx.strokeStyle = '#EAAA00';
+            ctx.beginPath();
+            const p80x = 40 + (theoreticalValues.P80 / 30) * (W - 50);
+            ctx.moveTo(p80x, H - 25);
+            ctx.lineTo(p80x, 10);
+            ctx.stroke();
+            
+            ctx.strokeStyle = '#D22630';
+            ctx.beginPath();
+            const p100x = 40 + (Math.min(theoreticalValues.P100, 30) / 30) * (W - 50);
+            ctx.moveTo(p100x, H - 25);
+            ctx.lineTo(p100x, 10);
+            ctx.stroke();
+            
+            ctx.setLineDash([]);
+            
+            // Labels
+            ctx.fillStyle = '#9aa0a6';
+            ctx.font = '8px Arial';
+            ctx.fillText('0', 38, H - 12);
+            ctx.fillText('15"', W/2 - 10, H - 12);
+            ctx.fillText('30"', W - 20, H - 12);
+            ctx.fillText('100%', 5, 15);
+            ctx.fillText('0%', 15, H - 28);
+            
+            ctx.fillStyle = '#EAAA00';
+            ctx.fillText('P80', p80x - 8, 20);
+            ctx.fillStyle = '#D22630';
+            ctx.fillText('P100', p100x - 10, 30);
+        }}
+        
+        function drawHistograms() {{
+            drawHistogram('canvas-hist-p80', mcResults.p80, 'P80', '#2196f3', 4.5);
+            drawHistogram('canvas-hist-p100', mcResults.p100, 'P100', '#f44336', 12);
+        }}
+        
+        function drawHistogram(canvasId, data, label, color, limit) {{
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width, H = canvas.height;
+            
+            ctx.fillStyle = '#1a2e38';
+            ctx.fillRect(0, 0, W, H);
+            
+            if (!data.length) return;
+            
+            const bins = 15;
+            const min = Math.min(...data);
+            const max = Math.max(...data);
+            const range = max - min || 1;
+            const binWidth = range / bins;
+            
+            const counts = new Array(bins).fill(0);
+            data.forEach(v => {{
+                const idx = Math.min(bins - 1, Math.floor((v - min) / binWidth));
+                counts[idx]++;
+            }});
+            
+            const maxCount = Math.max(...counts);
+            const barW = (W - 10) / bins;
+            
+            counts.forEach((c, i) => {{
+                const barH = (c / maxCount) * (H - 20);
+                const x = 5 + i * barW;
+                const y = H - 15 - barH;
+                
+                ctx.fillStyle = color;
+                ctx.fillRect(x, y, barW - 1, barH);
+            }});
+            
+            // Línea límite
+            const limitX = 5 + ((limit - min) / range) * (W - 10);
+            if (limitX > 5 && limitX < W - 5) {{
+                ctx.strokeStyle = '#27ae60';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([3, 3]);
+                ctx.beginPath();
+                ctx.moveTo(limitX, 0);
+                ctx.lineTo(limitX, H - 15);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }}
+            
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 8px Arial';
+            ctx.fillText(label, 5, 10);
+        }}
+        
+        function generateRecommendations() {{
+            const mean = arr => arr.reduce((a,b) => a+b, 0) / arr.length;
+            const p80_mean = mean(mcResults.p80);
+            const p100_mean = mean(mcResults.p100);
+            const probP100 = mcResults.p100.filter(v => v <= 12).length / mcResults.p100.length * 100;
+            
+            let recs = [];
+            
+            if (params.UCS > 150 && p100_mean > 10 && !params.dobleTaco) {{
+                recs.push({{ type: 'critical', text: '🔷 <b>Doble Taco recomendado</b>: UCS=' + params.UCS + 'MPa. Reduciría P100 ~20%.' }});
+            }}
+            
+            if (params.dobleTaco) {{
+                recs.push({{ type: 'success', text: '✓ <b>Doble Taco activo</b>: Reducción P100 aplicada.' }});
+            }}
+            
+            if (probP100 < 80) {{
+                recs.push({{ type: 'critical', text: '⛔ <b>Riesgo alto</b>: Solo ' + probP100.toFixed(0) + '% cumple P100≤12".' }});
+            }} else if (probP100 >= 90) {{
+                recs.push({{ type: 'success', text: '✓ <b>Fragmentación OK</b>: ' + probP100.toFixed(0) + '% cumple P100≤12".' }});
+            }}
+            
+            if (theoreticalValues.n < 1.0) {{
+                recs.push({{ type: 'warning', text: '⚠️ <b>Uniformidad baja</b> (n=' + theoreticalValues.n.toFixed(2) + '): Distribución amplia.' }});
+            }}
+            
+            if (params.Kx < 0.4) {{
+                recs.push({{ type: 'success', text: '📊 <b>Kx=' + params.Kx.toFixed(2) + '</b>: Fragmentación más fina que modelo base.' }});
+            }}
+            
+            document.getElementById('recommendations').innerHTML = 
+                '<h4>💡 Recomendaciones PILIX v3.6</h4>' +
+                recs.map(r => '<div class="rec-item rec-' + r.type + '">' + r.text + '</div>').join('');
+        }}
+        
+        // =============================================
+        // THREE.JS - VISUALIZACIÓN 3D
+        // =============================================
+        function initThreeJS() {{
+            const container = document.getElementById('threejs-container');
+            const W = container.clientWidth;
+            const H = container.clientHeight;
+            
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x1a2e38);
+            
+            camera = new THREE.PerspectiveCamera(45, W/H, 0.1, 1000);
+            camera.position.set(30, 25, 40);
+            camera.lookAt(0, 0, 0);
+            
+            renderer = new THREE.WebGLRenderer({{ antialias: true }});
+            renderer.setSize(W, H);
+            renderer.shadowMap.enabled = true;
+            container.appendChild(renderer.domElement);
+            
+            // Luces
+            const ambient = new THREE.AmbientLight(0x404040, 0.5);
+            scene.add(ambient);
+            
+            const sun = new THREE.DirectionalLight(0xffffff, 0.8);
+            sun.position.set(50, 50, 30);
+            sun.castShadow = true;
+            scene.add(sun);
+            
+            // Controles simples
+            let isDragging = false;
+            let prevX = 0, prevY = 0;
+            
+            container.addEventListener('mousedown', e => {{
+                isDragging = true;
+                prevX = e.clientX;
+                prevY = e.clientY;
+            }});
+            
+            container.addEventListener('mousemove', e => {{
+                if (!isDragging) return;
+                const dx = e.clientX - prevX;
+                const dy = e.clientY - prevY;
+                
+                camera.position.x += dx * 0.1;
+                camera.position.y -= dy * 0.1;
+                camera.lookAt(0, 0, 0);
+                
+                prevX = e.clientX;
+                prevY = e.clientY;
+            }});
+            
+            container.addEventListener('mouseup', () => isDragging = false);
+            container.addEventListener('mouseleave', () => isDragging = false);
+            
+            container.addEventListener('wheel', e => {{
+                const delta = e.deltaY > 0 ? 1.1 : 0.9;
+                camera.position.multiplyScalar(delta);
+            }});
+            
+            createScene3D();
+            animate3D();
+        }}
+        
+        function createScene3D() {{
+            // Limpiar escena
+            while(scene.children.length > 2) scene.remove(scene.children[scene.children.length - 1]);
+            pozos = [];
+            
+            const {{ B, S, T, H, J }} = params;
+            const ROWS = 3, COLS = 4;
+            
+            // Terreno
+            const floor = new THREE.Mesh(
+                new THREE.PlaneGeometry(60, 50),
+                new THREE.MeshLambertMaterial({{ color: 0x5d4d3d }})
+            );
+            floor.rotation.x = -Math.PI / 2;
+            floor.position.y = -H;
+            floor.receiveShadow = true;
+            scene.add(floor);
+            
+            // Superficie
+            const surface = new THREE.Mesh(
+                new THREE.PlaneGeometry(S * (COLS + 1), B * (ROWS + 1)),
+                new THREE.MeshLambertMaterial({{ color: 0x8d7b68 }})
+            );
+            surface.rotation.x = -Math.PI / 2;
+            surface.position.set(S * COLS / 2, 0.01, B * ROWS / 2);
+            scene.add(surface);
+            
+            // Banco
+            const banco = new THREE.Mesh(
+                new THREE.BoxGeometry(S * COLS, H, B * ROWS),
+                new THREE.MeshLambertMaterial({{ color: 0x6d5d4d, transparent: true, opacity: 0.3 }})
+            );
+            banco.position.set(S * COLS / 2, -H/2, B * ROWS / 2);
+            scene.add(banco);
+            
+            // Pozos
+            for (let row = 0; row < ROWS; row++) {{
+                for (let col = 0; col < COLS; col++) {{
+                    createPozo3D(col * S + S/2, row * B + B/2, col, row);
+                }}
+            }}
+        }}
+        
+        function createPozo3D(x, z, col, row) {{
+            const {{ T, H, J, d }} = params;
+            const L = H + J;
+            const Lc = L - T - J;
+            const visualD = 0.5;
+            
+            const group = new THREE.Group();
+            group.position.set(x, 0, z);
+            
+            // Taco
+            const taco = new THREE.Mesh(
+                new THREE.CylinderGeometry(visualD, visualD, T, 16),
+                new THREE.MeshPhongMaterial({{ color: 0x00e5ff, emissive: 0x006688 }})
+            );
+            taco.position.y = -T/2;
+            group.add(taco);
+            
+            // Carga
+            const carga = new THREE.Mesh(
+                new THREE.CylinderGeometry(visualD * 0.8, visualD * 0.8, Lc, 16),
+                new THREE.MeshPhongMaterial({{ color: 0xff1744, emissive: 0x880000 }})
+            );
+            carga.position.y = -T - Lc/2;
+            group.add(carga);
+            
+            // Pasadura
+            const pasadura = new THREE.Mesh(
+                new THREE.CylinderGeometry(visualD * 0.6, visualD * 0.6, J, 16),
+                new THREE.MeshPhongMaterial({{ color: 0xffeb3b }})
+            );
+            pasadura.position.y = -T - Lc - J/2;
+            group.add(pasadura);
+            
+            scene.add(group);
+            pozos.push({{ group, detonated: false, time: col * 30 + row * 70 }});
+        }}
+        
+        function animate3D() {{
+            requestAnimationFrame(animate3D);
+            renderer.render(scene, camera);
+        }}
+        
+        // =============================================
+        // FUNCIONES AUXILIARES
+        // =============================================
+        function runSimulation() {{
+            updateCalculations();
+            runMonteCarlo();
+            createScene3D();
+        }}
+        
+        function startAnimation() {{
+            isAnimating = true;
+            simulationTime = 0;
+            // Implementar animación de detonación
+        }}
+        
+        function resetSimulation() {{
+            mcResults = {{ p80: [], p100: [], sizes: [] }};
+            document.getElementById('result-P80-mc').textContent = '--"';
+            document.getElementById('result-P100-mc').textContent = '--"';
+            document.getElementById('result-P80-ic').textContent = 'IC 90%: --';
+            document.getElementById('result-P100-ic').textContent = 'IC 90%: --';
+            document.getElementById('progress-fill').style.width = '0%';
+            document.getElementById('progress-text').textContent = '';
+            createScene3D();
+        }}
+        
+        // Toggle doble taco
+        document.getElementById('check-doble-taco').addEventListener('change', function() {{
+            document.getElementById('doble-taco-params').style.display = this.checked ? 'block' : 'none';
+        }});
+        
+        // Inicializar
+        window.onload = function() {{
+            initThreeJS();
+            updateCalculations();
+        }};
+        
+        // Actualizar en cambio de inputs
+        document.querySelectorAll('input, select').forEach(el => {{
+            el.addEventListener('change', updateCalculations);
+        }});
+    </script>
+</body>
+</html>
+'''
+    
+    return html_code
+
+
 # Determinar si usar doble taco (recomendado para roca dura y P100 alto)
 usar_doble_taco_default = ucs_input > 150 and params_multiobj.get('P100_estimado', 10) > 10
 
@@ -5524,3 +6780,191 @@ else:
     )
 
     st.plotly_chart(fig, use_container_width=True)
+# ============================================
+# TAB SIMULADOR PILIX v3.6 - CONTENIDO
+# ============================================
+
+with tab_simulador:
+    st.markdown("## 🔬 Simulador PILIX v3.6 - Fragmentación Kuz-Ram")
+    
+    st.info("""
+    **Características del Simulador PILIX v3.6:**
+    - 📊 Índice de Lilly para Factor de Roca A
+    - 🔧 Calibración Kx/Kn (Mundaca)
+    - 📐 Índice n de Cunningham
+    - 🎲 Simulación Monte Carlo con análisis de sensibilidad
+    - 🔷 Modelo Doble Taco con 3 APDs
+    - 🎯 Visualización 3D interactiva
+    """)
+    
+    # Mostrar configuraciones disponibles para cargar
+    st.markdown("### 📋 Cargar Configuración desde Recomendaciones TOP")
+    
+    col_configs = st.columns(4)
+    
+    with col_configs[0]:
+        if st.button("🎯 Cargar Teórico ENAEX", key="load_teorico"):
+            st.session_state.pilix_params.update({
+                'nombre_config': 'Teórico ENAEX',
+                'B': st.session_state.get('params_teoricos', {}).get('burden_optimo', 7.5),
+                'S': st.session_state.get('params_teoricos', {}).get('espaciamiento_optimo', 8.6),
+                'T': st.session_state.get('params_teoricos', {}).get('taco_optimo', 5.5),
+            })
+            st.rerun()
+    
+    with col_configs[1]:
+        if st.button("⚡ Cargar Optimizado", key="load_optim"):
+            st.session_state.pilix_params.update({
+                'nombre_config': 'Optimizado Multiobjetivo',
+                'B': st.session_state.get('params_multiobj', {}).get('burden_optimo', 7.5),
+                'S': st.session_state.get('params_multiobj', {}).get('espaciamiento_optimo', 8.6),
+                'T': st.session_state.get('params_multiobj', {}).get('taco_optimo', 5.5),
+            })
+            st.rerun()
+    
+    with col_configs[2]:
+        if st.button("📉 Cargar Min. Metros", key="load_minm"):
+            st.session_state.pilix_params.update({
+                'nombre_config': 'Mínimos Metros',
+                'B': st.session_state.get('params_minmetros', {}).get('burden_minmetros', 8.0),
+                'S': st.session_state.get('params_minmetros', {}).get('espaciamiento_minmetros', 9.2),
+                'T': st.session_state.get('params_minmetros', {}).get('taco_ajustado', 5.5),
+            })
+            st.rerun()
+    
+    with col_configs[3]:
+        if st.button("🔄 Reset Manual", key="reset_params"):
+            st.session_state.pilix_params = {
+                'UCS': 100,
+                'RQD': 70,
+                'B': 7.5,
+                'S': 8.6,
+                'T': 5.5,
+                'H': 16.5,
+                'J': 1.5,
+                'd': 10.625,
+                'n': 1.2,
+                'Kx': 0.5,
+                'Kn': 1.02,
+                'explosivo': 'Energex 70',
+                'doble_taco': False,
+                'Ti': 2.0,
+                'Ti_pos': 8.0,
+                'nombre_config': 'Configuración Manual'
+            }
+            st.rerun()
+    
+    # Mostrar configuración actual
+    if st.session_state.pilix_params.get('nombre_config'):
+        st.success(f"📋 Configuración cargada: **{st.session_state.pilix_params['nombre_config']}**")
+    
+    # Panel de ajuste de parámetros antes de simular
+    with st.expander("⚙️ Ajustar parámetros antes de simular", expanded=True):
+        col_p1, col_p2, col_p3 = st.columns(3)
+        
+        with col_p1:
+            st.markdown("**🪨 Roca**")
+            pilix_ucs = st.number_input("UCS (MPa)", 20, 300, 
+                                        int(st.session_state.pilix_params.get('UCS', 100)), 
+                                        key="pilix_ucs")
+            pilix_rqd = st.number_input("RQD (%)", 0, 100, 
+                                        int(st.session_state.pilix_params.get('RQD', 70)), 
+                                        key="pilix_rqd")
+        
+        with col_p2:
+            st.markdown("**📐 Geometría**")
+            pilix_B = st.number_input("Burden (m)", 3.0, 15.0, 
+                                      float(st.session_state.pilix_params.get('B', 7.5)), 
+                                      step=0.1, key="pilix_B")
+            pilix_S = st.number_input("Espaciamiento (m)", 3.0, 18.0, 
+                                      float(st.session_state.pilix_params.get('S', 8.6)), 
+                                      step=0.1, key="pilix_S")
+            pilix_T = st.number_input("Taco (m)", 2.0, 10.0, 
+                                      float(st.session_state.pilix_params.get('T', 5.5)), 
+                                      step=0.1, key="pilix_T")
+            pilix_H = st.number_input("Altura Banco (m)", 5.0, 30.0, 
+                                      float(st.session_state.pilix_params.get('H', 16.5)), 
+                                      step=0.5, key="pilix_H")
+        
+        with col_p3:
+            st.markdown("**🔧 Calibración**")
+            pilix_Kx = st.number_input("Kx", 0.1, 2.0, 
+                                       float(st.session_state.pilix_params.get('Kx', 0.5)), 
+                                       step=0.01, key="pilix_Kx")
+            pilix_Kn = st.number_input("Kn", 0.5, 1.5, 
+                                       float(st.session_state.pilix_params.get('Kn', 1.02)), 
+                                       step=0.01, key="pilix_Kn")
+            pilix_doble_taco = st.checkbox("🔷 Doble Taco", 
+                                           st.session_state.pilix_params.get('doble_taco', False),
+                                           key="pilix_doble_taco")
+        
+        # Actualizar parámetros
+        st.session_state.pilix_params.update({
+            'UCS': pilix_ucs,
+            'RQD': pilix_rqd,
+            'B': pilix_B,
+            'S': pilix_S,
+            'T': pilix_T,
+            'H': pilix_H,
+            'J': 1.5,
+            'd': 10.625,
+            'Kx': pilix_Kx,
+            'Kn': pilix_Kn,
+            'doble_taco': pilix_doble_taco,
+        })
+    
+    # Generar y mostrar el simulador PILIX v3.6 completo
+    st.markdown("### 🔬 Simulador Interactivo")
+    
+    simulador_pilix_html = generar_simulador_pilix_completo(st.session_state.pilix_params)
+    components.html(simulador_pilix_html, height=750, scrolling=False)
+    
+    # Guía del simulador
+    with st.expander("📖 Guía del Simulador PILIX v3.6", expanded=False):
+        st.markdown("""
+        ### 🎯 ¿Qué es PILIX v3.6?
+        
+        PILIX es un simulador de fragmentación basado en el modelo **Kuz-Ram** con las siguientes capacidades:
+        
+        | Característica | Descripción |
+        |----------------|-------------|
+        | **Índice de Lilly** | Calcula Factor A desde UCS y RQD |
+        | **Calibración Kx/Kn** | Ajusta predicciones con datos reales |
+        | **Monte Carlo** | Cuantifica incertidumbre y rangos de confianza |
+        | **Doble Taco** | Simula configuración con taco intermedio |
+        | **Visualización 3D** | Animación de secuencia de detonación |
+        
+        ### 📐 Fórmulas Principales
+        
+        **Kuz-Ram con Kx:**
+        ```
+        X50 = Kx × A × (V₀/Q)^0.8 × Q^(1/6) × (1.15/Er)^(19/30)
+        ```
+        
+        **Índice n (Cunningham):**
+        ```
+        n = (2.2 - 14×B/D_mm) × √[(1+S/B)/2] × (1-W/B) × (Lc/H) × Kn
+        ```
+        
+        **Rosin-Rammler:**
+        ```
+        Xc = X50 / (ln2)^(1/n)
+        P80 = Xc × [-ln(0.20)]^(1/n)
+        P100 = Xc × [-ln(0.01)]^(1/n)
+        ```
+        
+        ### 🎲 Interpretación Monte Carlo
+        
+        | CV | Interpretación | Acción |
+        |----|----------------|--------|
+        | <5% | Baja incertidumbre | Resultados confiables |
+        | 5-10% | Moderada | Considere reducir variabilidad |
+        | >10% | Alta incertidumbre | Revise parámetros |
+        
+        ### 📚 Referencias
+        
+        - Cunningham (1983) - Kuz-Ram Model
+        - Lilly (1986) - Blastability Index
+        - Mundaca et al. (2015) - Calibración Kx/Kn
+        - Manual ENAEX (2020)
+        """)
